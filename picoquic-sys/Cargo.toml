@@ -1,0 +1,10 @@
+[package]
+name = "picoquic-sys"
+version = "0.1.0"
+authors = ["Bastian Köcher <git@kchr.de>"]
+build = "build.rs"
+
+[dependencies]
+
+[build-dependencies]
+cmake = "0.1"
