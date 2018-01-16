@@ -1,10 +1,13 @@
 extern crate cmake;
+extern crate bindgen;
 
 use std::env;
 use std::fs;
 use std::path::PathBuf;
 
 fn main() {
+    let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
+
     let build_dir = cmake::Config::new("src/picotls")
         .build_target("all")
         .build();
@@ -16,7 +19,7 @@ fn main() {
                 if e.path().extension().map(|e| e == "a").unwrap_or(false) {
                     fs::copy(
                         e.path(),
-                        PathBuf::from(env::var("OUT_DIR").unwrap())
+                        out_path
                             .join(e.path().file_name().unwrap()),
                     ).expect("error copying library");
                 }
@@ -24,7 +27,7 @@ fn main() {
         });
 
     let build_dir = cmake::Config::new("src/picoquic")
-        .define("CMAKE_LIBRARY_PATH", env::var("OUT_DIR").unwrap())
+        .define("CMAKE_LIBRARY_PATH", out_path.to_str().unwrap())
         .build_target("picoquic-core")
         .build();
 
@@ -33,4 +36,14 @@ fn main() {
         build_dir.display()
     );
     println!("cargo:rustc-link-lib=static=picoquic-core");
+
+    // generate the rust bindings for the picoquic
+    let bindings = bindgen::Builder::default()
+        .header("src/picoquic/picoquic/picoquic.h")
+        .generate()
+        .expect("Unable to generate picoquic bindings");
+
+    bindings
+        .write_to_file(out_path.join("picoquic.rs"))
+        .expect("Couldn't write bindings!");
 }
