@@ -1,6 +1,8 @@
+use std::io;
 use std::fmt;
 
 use failure::{Context, Fail, Backtrace};
+pub use failure::ResultExt;
 
 #[derive(Debug)]
 pub struct Error {
@@ -43,6 +45,6 @@ impl From<Context<ErrorKind>> for Error {
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Fail)]
 pub enum ErrorKind {
-    #[fail(display = "A contextual error message.")]
-    OneVariant,
+    #[fail(display = "A network error occurred.")]
+    NetworkError
 }
