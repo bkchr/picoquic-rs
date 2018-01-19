@@ -33,39 +33,7 @@ impl Server {
 
 type Context = Box<(Rc<ServerInner>, Option<Connection>)>;
 
-fn get_context_from_c_void(ctx: *mut c_void) -> Context {
-    unsafe { Box::from_raw(ctx as *mut (Rc<ServerInner>, Option<Connection>)) }
-}
-
-fn get_context(cnx: *mut picoquic_cnx_t, ctx: *mut c_void) -> Context {
-    let mut ctx = get_context_from_c_void(ctx);
-
-    if ctx.1.is_none() {
-        let inner = ctx.0.clone();
-        mem::forget(ctx);
-
-        let con = Some(Connection::new());
-        ctx = unsafe {
-            let c_ctx = Box::into_raw(Box::new((inner, con)));
-            picoquic_set_callback(cnx, Some(recv_data_callback), c_ctx as *mut c_void);
-            Box::from_raw(c_ctx)
-        };
-    }
-
-    ctx
-}
-
-fn free_context(ctx: *mut c_void) {
-    let ctx = get_context_from_c_void(ctx);
-
-    if ctx.1.is_none() {
-        // if the connection is `None`, we still got the initial context and that must not be
-        // dropped in this function!
-        mem::forget(ctx);
-    }
-}
-
-unsafe extern "C" fn recv_data_callback(
+unsafe extern "C" fn new_connection_callback(
     cnx: *mut picoquic_cnx_t,
     stream_id: stream::Id,
     bytes: *mut u8,
