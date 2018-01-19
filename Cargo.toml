@@ -8,4 +8,3 @@ picoquic-sys = { path = "picoquic-sys" }
 tokio-core = "0.1"
 failure = "0.1"
 failure_derive = "0.1"
-libc = "0.1.12"

@@ -1,7 +1,7 @@
 use std::io;
 use std::fmt;
 
-use failure::{Context, Fail, Backtrace};
+use failure::{Backtrace, Context, Fail};
 pub use failure::ResultExt;
 
 #[derive(Debug)]
@@ -33,7 +33,9 @@ impl Error {
 
 impl From<ErrorKind> for Error {
     fn from(kind: ErrorKind) -> Error {
-        Error { inner: Context::new(kind) }
+        Error {
+            inner: Context::new(kind),
+        }
     }
 }
 
@@ -45,6 +47,5 @@ impl From<Context<ErrorKind>> for Error {
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Fail)]
 pub enum ErrorKind {
-    #[fail(display = "A network error occurred.")]
-    NetworkError
+    #[fail(display = "A network error occurred.")] NetworkError,
 }

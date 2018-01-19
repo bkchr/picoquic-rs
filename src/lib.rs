@@ -1,9 +1,8 @@
-extern crate picoquic_sys;
-extern crate tokio_core;
 extern crate failure;
 #[macro_use]
 extern crate failure_derive;
-extern crate libc;
+extern crate picoquic_sys;
+extern crate tokio_core;
 
 mod connection;
 mod error;
