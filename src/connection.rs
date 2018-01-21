@@ -3,11 +3,13 @@ use stream::{self, Stream};
 use picoquic_sys::picoquic::{self, picoquic_call_back_event_t, picoquic_cnx_t,
                              picoquic_set_callback};
 
-use futures::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
+use futures::sync::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
+use futures::{Future, Poll};
 
 use std::collections::HashMap;
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::mem;
+use std::rc::Rc;
 
 use bytes::Bytes;
 
@@ -24,8 +26,24 @@ impl Connection {
     pub fn recv_data(&self, stream_id: stream::Id, data: &[u8]) {}
 }
 
-impl From<(*mut picoquic_cnx_t, stream::Id, *mut u8, usize, picoquic_call_back_event_t)> for Connection {
-    fn from(data: (*mut picoquic_cnx_t, stream::Id, *mut u8, usize, picoquic_call_back_event_t)) -> Connection {
+impl From<
+    (
+        *mut picoquic_cnx_t,
+        stream::Id,
+        *mut u8,
+        usize,
+        picoquic_call_back_event_t,
+    ),
+> for Connection {
+    fn from(
+        data: (
+            *mut picoquic_cnx_t,
+            stream::Id,
+            *mut u8,
+            usize,
+            picoquic_call_back_event_t,
+        ),
+    ) -> Connection {
         let (sender, msg_recv) = unbounded();
 
         let con = Connection { msg_recv };
@@ -45,13 +63,19 @@ struct Context {
 }
 
 impl Context {
-    fn new(cnx: *mut picoquic_cnx_t, msg_send: UnboundedSender<Message>) -> *mut c_void {
-        let ctx = Box::new(Context { msg_send, streams: Default::default(), cnx });
+    fn new(cnx: *mut picoquic_cnx_t, msg_send: UnboundedSender<Message>, handle: &Handle) -> *mut c_void {
+        let ctx = Rc::new(Context {
+            msg_send,
+            streams: Default::default(),
+            cnx,
+        });
+
+        handle.spawn(rc.clone());
 
         // Convert the `Context` to a `*mut c_void` and reset the callback to the
         // `recv_data_callback`
         unsafe {
-            let ctx = Box::into_raw(ctx) as *mut c_void;
+            let ctx = Rc::into_raw(ctx) as *mut c_void;
             picoquic_set_callback(cnx, Some(recv_data_callback), c_ctx);
             ctx
         }
@@ -62,7 +86,7 @@ impl Context {
             Occupied(entry) => {
                 entry.get_mut().recv_data(self.cnx, data, event);
                 None
-            },
+            }
             Vacant(entry) => {
                 let (stream, mut ctx) = Stream::new(id);
 
@@ -73,7 +97,10 @@ impl Context {
         };
 
         if let Some(stream) = new_stream {
-            if self.send_msg.unbounded_send(Message::NewStream(stream)).is_err() {
+            if self.send_msg
+                .unbounded_send(Message::NewStream(stream))
+                .is_err()
+            {
                 info!("will close connection, because `Connection` instance was dropped.");
                 self.close();
             }
@@ -82,13 +109,24 @@ impl Context {
 
     fn close(&self) {
         //TODO maybe replace 0 with an appropriate error code
-        unsafe { picoquic_close(self.cnx, 0); }
+        unsafe {
+            picoquic_close(self.cnx, 0);
+        }
     }
 }
 
-impl From<*mut c_void> for Box<Context> {
-    fn from(ptr: *mut c_void) -> Box<Context> {
-        unsafe { Box::from_raw(ptr as *mut Context) }
+impl Future for Context {
+    type Item = ();
+    type Error = ();
+
+    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
+        self.streams.retain(|_, s| s.poll().is_ok());
+    }
+}
+
+impl From<*mut c_void> for Rc<Context> {
+    fn from(ptr: *mut c_void) -> Rc<Context> {
+        unsafe { Rc::from_raw(ptr as *mut Context) }
     }
 }
 
@@ -101,7 +139,7 @@ unsafe extern "C" fn recv_data_callback(
     ctx: *mut c_void,
 ) {
     assert!(!ctx.is_null());
-    let mut ctx = Box<Context>::from(ctx);
+    let mut ctx: Rc<Context> = Rc::from(ctx);
 
     if event == picoquic::picoquic_call_back_event_t_picoquic_callback_close
         || event == picoquic::picoquic_call_back_event_t_picoquic_callback_application_close
