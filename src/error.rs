@@ -1,4 +1,3 @@
-use std::io;
 use std::fmt;
 
 use failure::{Backtrace, Context, Fail};
@@ -48,4 +47,5 @@ impl From<Context<ErrorKind>> for Error {
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Fail)]
 pub enum ErrorKind {
     #[fail(display = "A network error occurred.")] NetworkError,
+    #[fail(display = "An error occurred while creating a `CString` type.")] CStringError,
 }
