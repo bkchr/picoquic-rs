@@ -1,17 +1,19 @@
 use stream::{self, Stream};
 
 use picoquic_sys::picoquic::{self, picoquic_call_back_event_t, picoquic_cnx_t,
-                             picoquic_set_callback};
+                             picoquic_set_callback, picoquic_close};
 
 use futures::sync::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
 use futures::{Future, Poll};
+use futures::Async::{Ready, NotReady};
 
 use std::collections::HashMap;
 use std::collections::hash_map::Entry::{Occupied, Vacant};
+use std::os::raw::c_void;
 use std::mem;
 use std::rc::Rc;
-
-use bytes::Bytes;
+use std::cell::RefCell;
+use std::slice;
 
 enum Message {
     NewStream(Stream),
@@ -50,7 +52,7 @@ impl From<
         let ctx = Context::new(data.0, sender);
 
         // Now we need to call the callback once manually to process the received data
-        recv_data_callback(data.0, data.1, data.2, data.3, ctx);
+        unsafe { recv_data_callback(data.0, data.1, data.2, data.3, data.4, ctx); }
 
         con
     }
@@ -60,37 +62,37 @@ struct Context {
     send_msg: UnboundedSender<Message>,
     streams: HashMap<stream::Id, stream::Context>,
     cnx: *mut picoquic_cnx_t,
+    closed: bool,
 }
 
 impl Context {
-    fn new(cnx: *mut picoquic_cnx_t, msg_send: UnboundedSender<Message>, handle: &Handle) -> *mut c_void {
-        let ctx = Rc::new(Context {
-            msg_send,
+    fn new(cnx: *mut picoquic_cnx_t, send_msg: UnboundedSender<Message>) -> *mut c_void {
+        let ctx = Rc::new(RefCell::new(Context {
+            send_msg,
             streams: Default::default(),
             cnx,
-        });
-
-        handle.spawn(rc.clone());
+            closed: false,
+        }));
 
         // Convert the `Context` to a `*mut c_void` and reset the callback to the
         // `recv_data_callback`
         unsafe {
             let ctx = Rc::into_raw(ctx) as *mut c_void;
-            picoquic_set_callback(cnx, Some(recv_data_callback), c_ctx);
+            picoquic_set_callback(cnx, Some(recv_data_callback), ctx);
             ctx
         }
     }
 
     fn recv_data(&mut self, id: stream::Id, data: &[u8], event: picoquic_call_back_event_t) {
         let new_stream = match self.streams.entry(id) {
-            Occupied(entry) => {
-                entry.get_mut().recv_data(self.cnx, data, event);
+            Occupied(mut entry) => {
+                entry.get_mut().recv_data(data, event);
                 None
             }
             Vacant(entry) => {
-                let (stream, mut ctx) = Stream::new(id);
+                let (stream, mut ctx) = Stream::new(id, self.cnx);
 
-                ctx.recv_data(self.cnx, data, event);
+                ctx.recv_data(data, event);
                 entry.insert(ctx);
                 Some(stream)
             }
@@ -107,11 +109,13 @@ impl Context {
         }
     }
 
-    fn close(&self) {
+    fn close(&mut self) {
         //TODO maybe replace 0 with an appropriate error code
         unsafe {
             picoquic_close(self.cnx, 0);
         }
+
+        self.closed = true;
     }
 }
 
@@ -120,18 +124,21 @@ impl Future for Context {
     type Error = ();
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        self.streams.retain(|_, s| s.poll().is_ok());
+        if self.closed {
+            return Ok(Ready(()));
+        }
+
+        self.streams.retain(|_, s| s.poll().map(|r| r.is_not_ready()).unwrap_or(false));
+        Ok(NotReady)
     }
 }
 
-impl From<*mut c_void> for Rc<Context> {
-    fn from(ptr: *mut c_void) -> Rc<Context> {
-        unsafe { Rc::from_raw(ptr as *mut Context) }
-    }
+fn get_context(ctx: *mut c_void) -> Rc<RefCell<Context>> {
+    unsafe { Rc::from_raw(ctx as *mut RefCell<Context>) }
 }
 
 unsafe extern "C" fn recv_data_callback(
-    cnx: *mut picoquic_cnx_t,
+    _: *mut picoquic_cnx_t,
     stream_id: stream::Id,
     bytes: *mut u8,
     length: usize,
@@ -139,7 +146,7 @@ unsafe extern "C" fn recv_data_callback(
     ctx: *mut c_void,
 ) {
     assert!(!ctx.is_null());
-    let mut ctx: Rc<Context> = Rc::from(ctx);
+    let ctx = get_context(ctx);
 
     if event == picoquic::picoquic_call_back_event_t_picoquic_callback_close
         || event == picoquic::picoquic_call_back_event_t_picoquic_callback_application_close
@@ -148,7 +155,7 @@ unsafe extern "C" fn recv_data_callback(
     } else {
         let data = slice::from_raw_parts(bytes, length as usize);
 
-        ctx.recv_data(stream_id, data, event);
+        ctx.borrow_mut().recv_data(stream_id, data, event);
 
         // the context must not be deleted!
         mem::forget(ctx);

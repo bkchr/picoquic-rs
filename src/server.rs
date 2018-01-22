@@ -42,7 +42,7 @@ unsafe extern "C" fn new_connection_callback(
     ctx: *mut c_void,
 ) {
     assert!(!ctx.is_null());
-
+/*
     if event == picoquic::picoquic_call_back_event_t_picoquic_callback_close
         || event == picoquic::picoquic_call_back_event_t_picoquic_callback_application_close
     {
@@ -59,4 +59,5 @@ unsafe extern "C" fn new_connection_callback(
         // the context must not be deleted!
         mem::forget(ctx);
     }
+    */
 }

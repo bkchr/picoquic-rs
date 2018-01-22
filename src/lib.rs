@@ -2,6 +2,7 @@ extern crate bytes;
 extern crate failure;
 #[macro_use]
 extern crate failure_derive;
+#[macro_use]
 extern crate futures;
 #[macro_use]
 extern crate log;

@@ -1,10 +1,12 @@
 use futures::sync::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
 
-use bytes::{Bytes, BytesMut};
+use bytes::{Bytes};
 
-use futures::{Future, Poll};
+use futures::{Future, Poll, Stream as FStream};
+use futures::Async::Ready;
 
-use picoquic_sys::picoquic::picoquic_add_to_stream;
+use picoquic_sys::picoquic::{self, picoquic_call_back_event_t, picoquic_cnx_t,
+                             picoquic_add_to_stream, picoquic_reset_stream};
 
 pub type Id = u64;
 
@@ -13,23 +15,23 @@ pub enum Message {
     Data(Bytes),
 }
 
-struct Stream {
+pub struct Stream {
     recv_msg: UnboundedReceiver<Message>,
     send_msg: UnboundedSender<Message>,
 }
 
 impl Stream {
-    pub fn new(id: Id, cnx: *mut picoquic_cnx_t) -> (Stream, Context) {
+    pub(crate) fn new(id: Id, cnx: *mut picoquic_cnx_t) -> (Stream, Context) {
         let (recv_msg, recv_send) = unbounded();
         let (send_msg, send_recv) = unbounded();
 
-        let ctx = Context::new(recv_send, send_recv, id, cnx);
+        let ctx = Context::new(recv_msg, send_recv, id, cnx);
         let stream = Stream {
-            recv_data,
-            send_data,
+            recv_msg: recv_send,
+            send_msg: send_msg,
         };
 
-        (stream, context)
+        (stream, ctx)
     }
 }
 
@@ -44,7 +46,7 @@ pub(crate) struct Context {
 impl Context {
     pub fn new(
         recv_msg: UnboundedSender<Message>,
-        send_msg: UnboundedReceiver<Message>,
+        mut send_msg: UnboundedReceiver<Message>,
         id: Id,
         cnx: *mut picoquic_cnx_t,
     ) -> Context {
@@ -68,7 +70,7 @@ impl Context {
         }
     }
 
-    fn recv_data(&mut self, data: &[u8], event: picoquic_call_back_event_t) {
+    pub fn recv_data(&mut self, data: &[u8], event: picoquic_call_back_event_t) {
         if self.finished {
             error!("stream({}) received data after being finished!", self.id);
         } else if event == picoquic::picoquic_call_back_event_t_picoquic_callback_stop_sending
@@ -100,7 +102,7 @@ impl Future for Context {
             match try_ready!(self.send_msg.poll()) {
                 Some(Message::Close) => {
                     self.reset();
-                    return Ok(());
+                    return Ok(Ready(()));
                 }
                 Some(Message::Data(data)) => {
                     self.send_data(data);
@@ -108,7 +110,7 @@ impl Future for Context {
                 None => {
                     error!("received `None`, closing!");
                     self.reset();
-                    return Ok(());
+                    return Ok(Ready(()));
                 }
             }
         }
