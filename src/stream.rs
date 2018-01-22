@@ -1,12 +1,12 @@
 use futures::sync::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
 
-use bytes::{Bytes};
+use bytes::Bytes;
 
 use futures::{Future, Poll, Stream as FStream};
 use futures::Async::Ready;
 
-use picoquic_sys::picoquic::{self, picoquic_call_back_event_t, picoquic_cnx_t,
-                             picoquic_add_to_stream, picoquic_reset_stream};
+use picoquic_sys::picoquic::{self, picoquic_add_to_stream, picoquic_call_back_event_t,
+                             picoquic_cnx_t, picoquic_reset_stream};
 
 pub type Id = u64;
 
