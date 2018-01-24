@@ -1,18 +1,15 @@
 use error::Error;
 use super::packet::Packet;
+use super::quic_ctx::socket_addr_from_c;
 
 use picoquic_sys::picoquic::{picoquic_cnx_t, picoquic_delete_cnx, picoquic_get_cnx_state,
                              picoquic_get_peer_addr,
-                             picoquic_state_enum_picoquic_state_disconnected};
+                             picoquic_state_enum_picoquic_state_disconnected, self};
 
 use std::net::SocketAddr;
 use std::ptr;
 
-use socket2::SockAddr;
-
 use tokio_core::net::UdpSocket;
-
-use libc;
 
 pub struct Connection {
     cnx: *mut picoquic_cnx_t,
@@ -26,18 +23,13 @@ impl Connection {
     /// The peer address of this connection.
     pub fn get_peer_addr(&self) -> SocketAddr {
         let mut peer_addr_len = 0;
-        let mut peer_addr = ptr::null_mut();
+        let mut peer_addr: *mut picoquic::sockaddr = ptr::null_mut();
 
-        let addr = unsafe {
+        unsafe {
             picoquic_get_peer_addr(self.cnx, &mut peer_addr, &mut peer_addr_len);
 
-            SockAddr::from_raw_parts(peer_addr as *const libc::sockaddr, peer_addr_len as u32)
-        };
-
-        addr.as_inet()
-            .map(|v| v.into())
-            .or(addr.as_inet6().map(|v| v.into()))
-            .expect("neither ipv4 nor ipv6?")
+            socket_addr_from_c(peer_addr, peer_addr_len)
+        }
     }
 
     /// Creates a `Packet` and sends it via the given `UdpSocket`.

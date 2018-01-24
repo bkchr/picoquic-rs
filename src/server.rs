@@ -68,7 +68,7 @@ impl ServerInner {
         let mut itr = self.quic.connection_iter();
 
         while let Some(con) = itr.next() {
-            if let NotReady = self.socket.poll_write() {
+            if self.socket.poll_write().is_not_ready() {
                 // The socket is not ready to send data
                 break;
             }
@@ -107,6 +107,19 @@ impl ServerInner {
 
         let _ = wrapper(&mut self.buffer, &mut self.socket, &mut self.quic, current_time);
     }
+
+    fn send_stateless_packets(&mut self) {
+        let mut itr = self.quic.stateless_packet_iter();
+
+        while let Some(packet) = itr.next() {
+            if self.socket.poll_write().is_not_ready() {
+                // The socket is not ready to send data
+                break;
+            }
+
+            let _ = self.socket.send_to(packet.get_data(), &packet.get_peer_addr());
+        }
+    }
 }
 
 impl Future for ServerInner {
@@ -117,6 +130,8 @@ impl Future for ServerInner {
         let current_time = get_timestamp();
 
         self.check_for_incoming_data(current_time);
+
+        self.send_stateless_packets();
 
         // This checks all connection contexts if there is data that need to be send
         assert!(self.context.borrow_mut().poll().is_ok());
