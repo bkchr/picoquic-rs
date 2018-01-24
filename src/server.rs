@@ -2,22 +2,22 @@ use error::*;
 use stream;
 use connection::{self, Connection};
 use config::Config;
+use ffi::QuicCtx;
 
-use picoquic_sys::picoquic::{picoquic_call_back_event_t, picoquic_cnx_t, picoquic_create,
-                             picoquic_quic_t};
+use picoquic_sys::picoquic::{picoquic_call_back_event_t, picoquic_cnx_t};
 
 use std::net::SocketAddr;
 use std::os::raw::c_void;
 use std::rc::Rc;
 use std::mem;
 use std::cell::RefCell;
-use std::ffi::CString;
-use std::ptr;
 
 use tokio_core::net::UdpSocket;
 use tokio_core::reactor::Handle;
 
 use futures::sync::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
+use futures::{Future, Poll};
+use futures::Async::NotReady;
 
 use chrono::Utc;
 
@@ -27,42 +27,12 @@ fn get_timestamp() -> u64 {
     now.timestamp() as u64 + now.timestamp_subsec_micros() as u64
 }
 
-fn create_picoquic(ctx: *mut c_void, mut config: Config) -> Result<*mut picoquic_quic_t, Error> {
-    // The number of buckets that picoquic will allocate for connections
-    // The buckets itself are a linked list
-    let connection_buckets = 16;
-
-    let cert_filename = CString::new(config.cert_filename).context(ErrorKind::CStringError)?;
-    let key_filename = CString::new(config.key_filename).context(ErrorKind::CStringError)?;
-    let reset_seed = config
-        .reset_seed
-        .map(|mut v| v.as_mut_ptr())
-        .unwrap_or_else(|| ptr::null_mut());
-
-    Ok(unsafe {
-        picoquic_create(
-            connection_buckets,
-            cert_filename.as_ptr(),
-            ptr::null(),
-            key_filename.as_ptr(),
-            Some(new_connection_callback),
-            ctx,
-            None,
-            ptr::null_mut(),
-            reset_seed,
-            get_timestamp(),
-            ptr::null_mut(),
-            ptr::null(),
-            ptr::null(),
-            0,
-        )
-    })
-}
-
 struct ServerInner {
     socket: UdpSocket,
     context: Rc<RefCell<Context>>,
-    quic: *mut picoquic_quic_t,
+    quic: QuicCtx,
+    /// Temporary buffer used for receiving and sending
+    buffer: Vec<u8>,
 }
 
 impl ServerInner {
@@ -74,16 +44,52 @@ impl ServerInner {
         let (send, recv) = unbounded();
         let (context, c_ctx) = Context::new(send);
 
-        let quic = create_picoquic(c_ctx, config)?;
+        let quic = QuicCtx::new(
+            config,
+            c_ctx,
+            Some(new_connection_callback),
+            get_timestamp(),
+        )?;
 
         Ok((
             ServerInner {
                 socket: UdpSocket::bind(listen_address, handle).context(ErrorKind::NetworkError)?,
                 context,
                 quic,
+                buffer: vec![0; 1500],
             },
             recv,
         ))
+    }
+
+    /// Iterates over all connections for ready data and sends it.
+    fn check_connections_for_packages_and_send(&mut self, current_time: u64) {
+        let mut itr = self.quic.connection_iter();
+
+        while let Some(con) = itr.next() {
+            if con.is_disconnected() {
+                con.delete();
+                break;
+            } else {
+                if let Err(e) =
+                    con.create_and_send_packet(&mut self.buffer, &mut self.socket, current_time)
+                {
+                    error!("error while sending connections packets: {:?}", e);
+                }
+            }
+        }
+    }
+}
+
+impl Future for ServerInner {
+    type Item = ();
+    type Error = ();
+
+    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
+        // This can not return an error!
+        assert!(self.context.borrow_mut().poll().is_ok());
+
+        Ok(NotReady)
     }
 }
 
@@ -110,8 +116,23 @@ impl Context {
         self.connections.push(ctx);
         if self.send_con.unbounded_send(con).is_err() {
             error!("error propagating new `Connection`, the receiving side probably closed!");
-            //TODO: yeah we should end here the `ServerInner` future
+            //TODO: yeah we should end the `ServerInner` future here
         }
+    }
+}
+
+impl Future for Context {
+    type Item = ();
+    type Error = ();
+
+    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
+        self.connections.retain(|c| {
+            c.borrow_mut()
+                .poll()
+                .map(|v| v.is_not_ready())
+                .unwrap_or(false)
+        });
+        Ok(NotReady)
     }
 }
 

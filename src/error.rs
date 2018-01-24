@@ -48,4 +48,7 @@ impl From<Context<ErrorKind>> for Error {
 pub enum ErrorKind {
     #[fail(display = "A network error occurred.")] NetworkError,
     #[fail(display = "An error occurred while creating a `CString` type.")] CStringError,
+    #[fail(display = "Could not allocate new memory.")] OutOfMemoryError,
+    #[fail(display = "Disconnected.")] Disconnected,
+    #[fail(display = "Unknown.")] Unknown,
 }
