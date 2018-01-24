@@ -11,6 +11,7 @@ extern crate libc;
 extern crate log;
 extern crate picoquic_sys;
 extern crate socket2;
+#[macro_use]
 extern crate tokio_core;
 
 mod connection;

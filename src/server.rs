@@ -11,6 +11,7 @@ use std::os::raw::c_void;
 use std::rc::Rc;
 use std::mem;
 use std::cell::RefCell;
+use std::io;
 
 use tokio_core::net::UdpSocket;
 use tokio_core::reactor::Handle;
@@ -62,11 +63,16 @@ impl ServerInner {
         ))
     }
 
-    /// Iterates over all connections for ready data and sends it.
-    fn check_connections_for_packages_and_send(&mut self, current_time: u64) {
+    /// Iterates over all connections for data that is ready and sends it.
+    fn send_connection_packets(&mut self, current_time: u64) {
         let mut itr = self.quic.connection_iter();
 
         while let Some(con) = itr.next() {
+            if let NotReady = self.socket.poll_write() {
+                // The socket is not ready to send data
+                break;
+            }
+
             if con.is_disconnected() {
                 con.delete();
                 break;
@@ -79,6 +85,28 @@ impl ServerInner {
             }
         }
     }
+
+    /// Checks the `UdpSocket` for incoming data
+    fn check_for_incoming_data(&mut self, current_time: u64) {
+        fn wrapper(
+            buf: &mut [u8],
+            socket: &mut UdpSocket,
+            quic: &mut QuicCtx,
+            current_time: u64,
+        ) -> Poll<Option<()>, io::Error> {
+            loop {
+                let (len, addr) = try_nb!(socket.recv_from(buf));
+                quic.incoming_data(
+                    &mut buf[..len],
+                    socket.local_addr().unwrap(),
+                    addr,
+                    current_time,
+                );
+            }
+        }
+
+        let _ = wrapper(&mut self.buffer, &mut self.socket, &mut self.quic, current_time);
+    }
 }
 
 impl Future for ServerInner {
@@ -86,8 +114,16 @@ impl Future for ServerInner {
     type Error = ();
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        // This can not return an error!
+        let current_time = get_timestamp();
+
+        self.check_for_incoming_data(current_time);
+
+        // This checks all connection contexts if there is data that need to be send
         assert!(self.context.borrow_mut().poll().is_ok());
+
+        // All data that was send by the connection contexts, is collected to `Packet`'s per
+        // connection and is send via the `UdpSocket`.
+        self.send_connection_packets(current_time);
 
         Ok(NotReady)
     }

@@ -2,14 +2,17 @@ use error::*;
 use super::Connection;
 use config::Config;
 
-use picoquic_sys::picoquic::{picoquic_cnx_t, picoquic_create, picoquic_free,
-                             picoquic_get_first_cnx, picoquic_get_next_cnx, picoquic_quic_t,
-                             picoquic_stream_data_cb_fn};
+use picoquic_sys::picoquic::{self, picoquic_cnx_t, picoquic_create, picoquic_free,
+                             picoquic_get_first_cnx, picoquic_get_next_cnx,
+                             picoquic_incoming_packet, picoquic_quic_t, picoquic_stream_data_cb_fn};
 
 use std::iter::Iterator;
 use std::os::raw::c_void;
 use std::ffi::CString;
 use std::ptr;
+use std::net::SocketAddr;
+
+use socket2::SockAddr;
 
 pub struct QuicCtx {
     quic: *mut picoquic_quic_t,
@@ -57,6 +60,30 @@ impl QuicCtx {
 
     pub fn connection_iter(&self) -> ConnectionIter {
         ConnectionIter::new(self.quic)
+    }
+
+    pub fn incoming_data(
+        &mut self,
+        buf: &mut [u8],
+        addr_to: SocketAddr,
+        addr_from: SocketAddr,
+        current_time: u64,
+    ) {
+        let addr_to = SockAddr::from(addr_to);
+        let addr_from = SockAddr::from(addr_from);
+
+        unsafe {
+            picoquic_incoming_packet(
+                self.quic,
+                buf.as_mut_ptr(),
+                buf.len() as u32,
+                addr_from.as_ptr() as *mut picoquic::sockaddr,
+                addr_to.as_ptr() as *mut picoquic::sockaddr,
+                // as long as we only support one udp socket, we don't need to change this index
+                0,
+                current_time,
+            );
+        }
     }
 }
 
