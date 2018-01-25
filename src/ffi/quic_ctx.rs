@@ -94,8 +94,7 @@ impl QuicCtx {
         }
     }
 
-    pub fn stateless_packet_iter(&self) -> StatelessPacketIter {
-        // TODO, ensure that the iterator lives not longer than the context(some lifetime magic)
+    pub fn stateless_packet_iter<'a>(&'a self) -> StatelessPacketIter<'a> {
         StatelessPacketIter::new(self.quic)
     }
 

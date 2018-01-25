@@ -54,8 +54,6 @@ impl Connection {
 
         (con, ctx)
     }
-
-    pub fn recv_data(&self, stream_id: stream::Id, data: &[u8]) {}
 }
 
 pub(crate) struct Context {

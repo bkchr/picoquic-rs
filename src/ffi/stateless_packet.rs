@@ -7,6 +7,7 @@ use std::iter::Iterator;
 use std::mem;
 use std::slice;
 use std::net::SocketAddr;
+use std::marker::PhantomData;
 
 use libc;
 
@@ -51,17 +52,18 @@ impl Drop for StatelessPacket {
     }
 }
 
-pub struct StatelessPacketIter {
+pub struct StatelessPacketIter<'a> {
     quic: *mut picoquic_quic_t,
+    _marker: PhantomData<&'a i32>,
 }
 
-impl StatelessPacketIter {
-    pub fn new(quic: *mut picoquic_quic_t) -> StatelessPacketIter {
-        StatelessPacketIter { quic }
+impl<'a> StatelessPacketIter<'a> {
+    pub fn new(quic: *mut picoquic_quic_t) -> StatelessPacketIter<'a> {
+        StatelessPacketIter { quic, _marker: Default::default() }
     }
 }
 
-impl Iterator for StatelessPacketIter {
+impl<'a> Iterator for StatelessPacketIter<'a> {
     type Item = StatelessPacket;
 
     fn next(&mut self) -> Option<Self::Item> {

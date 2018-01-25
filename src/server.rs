@@ -35,6 +35,9 @@ impl Server {
     ) -> Result<Server, Error> {
         let (inner, recv_con) = ServerInner::new(listen_address, handle, config)?;
 
+        // start the inner future
+        handle.spawn(inner);
+
         Ok(Server { recv_con })
     }
 }
