@@ -4,7 +4,7 @@ use connection::{self, Connection};
 use config::Config;
 use ffi::QuicCtx;
 
-use picoquic_sys::picoquic::{picoquic_call_back_event_t, picoquic_cnx_t};
+use picoquic_sys::picoquic::{picoquic_call_back_event_t, picoquic_cnx_t, PICOQUIC_MAX_PACKET_SIZE};
 
 use std::net::SocketAddr;
 use std::os::raw::c_void;
@@ -57,7 +57,7 @@ impl ServerInner {
                 socket: UdpSocket::bind(listen_address, handle).context(ErrorKind::NetworkError)?,
                 context,
                 quic,
-                buffer: vec![0; 1500],
+                buffer: vec![0; PICOQUIC_MAX_PACKET_SIZE as usize],
             },
             recv,
         ))
