@@ -3,20 +3,24 @@ use super::connection::ConnectionIter;
 use super::stateless_packet::StatelessPacketIter;
 use config::Config;
 
-use picoquic_sys::picoquic::{self, picoquic_create, picoquic_free, picoquic_incoming_packet,
-                             picoquic_quic_t, picoquic_stream_data_cb_fn};
+use picoquic_sys::picoquic::{self, picoquic_create, picoquic_free, picoquic_get_next_wake_delay,
+                             picoquic_incoming_packet, picoquic_quic_t, picoquic_stream_data_cb_fn};
 
 use std::os::raw::c_void;
 use std::ffi::CString;
 use std::ptr;
 use std::net::SocketAddr;
+use std::time::Instant;
 
 use socket2::SockAddr;
 
 use libc;
 
+use chrono::Duration;
+
 pub struct QuicCtx {
     quic: *mut picoquic_quic_t,
+    max_delay: Duration,
 }
 
 impl QuicCtx {
@@ -56,7 +60,10 @@ impl QuicCtx {
             )
         };
 
-        Ok(QuicCtx { quic })
+        Ok(QuicCtx {
+            quic,
+            max_delay: Duration::seconds(10),
+        })
     }
 
     pub fn connection_iter(&self) -> ConnectionIter {
@@ -90,6 +97,16 @@ impl QuicCtx {
     pub fn stateless_packet_iter(&self) -> StatelessPacketIter {
         // TODO, ensure that the iterator lives not longer than the context(some lifetime magic)
         StatelessPacketIter::new(self.quic)
+    }
+
+    /// Returns the next time point at which Picoquic needs to get called again. However, it is
+    /// possible to call Picoquic before, e.g. when new data arrives or the application wants to
+    /// send new data. The time point is absolute.
+    pub fn get_next_wake_up_time(&self, current_time: u64) -> Instant {
+        let max_delay = self.max_delay.num_microseconds().unwrap();
+        let wake_up = unsafe { picoquic_get_next_wake_delay(self.quic, current_time, max_delay) };
+        // TODO: maybe we need to use current_time here.
+        Instant::now() + Duration::microseconds(wake_up).to_std().unwrap()
     }
 }
 

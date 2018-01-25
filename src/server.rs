@@ -12,9 +12,10 @@ use std::rc::Rc;
 use std::mem;
 use std::cell::RefCell;
 use std::io;
+use std::time::Duration;
 
 use tokio_core::net::UdpSocket;
-use tokio_core::reactor::Handle;
+use tokio_core::reactor::{Timeout, Handle };
 
 use futures::sync::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
 use futures::{Future, Poll};
@@ -34,6 +35,9 @@ struct ServerInner {
     quic: QuicCtx,
     /// Temporary buffer used for receiving and sending
     buffer: Vec<u8>,
+    /// Picoquic requires to be woken up to handle resend,
+    /// drop of connections(because of inactivity), etc..
+    timer: Timeout,
 }
 
 impl ServerInner {
@@ -58,6 +62,7 @@ impl ServerInner {
                 context,
                 quic,
                 buffer: vec![0; PICOQUIC_MAX_PACKET_SIZE as usize],
+                timer: Timeout::new(Duration::from_secs(10), handle).context(ErrorKind::Unknown)?,
             },
             recv,
         ))
@@ -150,6 +155,10 @@ impl Future for ServerInner {
         // All data that was send by the connection contexts, is collected to `Packet`'s per
         // connection and is send via the `UdpSocket`.
         self.send_connection_packets(current_time);
+
+        self.timer.reset(self.quic.get_next_wake_up_time(current_time));
+        // Poll the timer once, to register the current task to be woken up when the timer finishes.
+        let _ = self.timer.poll();
 
         Ok(NotReady)
     }
