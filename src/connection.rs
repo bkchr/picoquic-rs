@@ -5,7 +5,7 @@ use picoquic_sys::picoquic::{self, picoquic_call_back_event_t, picoquic_close, p
                              picoquic_set_callback};
 
 use futures::sync::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
-use futures::{Future, Poll, self};
+use futures::{self, Future, Poll};
 use futures::Async::{NotReady, Ready};
 
 use std::collections::HashMap;

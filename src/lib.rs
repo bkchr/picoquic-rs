@@ -20,3 +20,7 @@ mod server;
 mod stream;
 mod config;
 mod ffi;
+
+pub use self::server::Server;
+pub use self::connection::{Connection, Message as CMessage};
+pub use self::stream::{Message as SMessage, Stream};

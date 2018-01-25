@@ -23,12 +23,16 @@ use futures::Async::NotReady;
 
 use chrono::Utc;
 
-struct Server {
+pub struct Server {
     recv_con: UnboundedReceiver<Connection>,
 }
 
 impl Server {
-    pub fn new(listen_address: &SocketAddr, handle: &Handle, config: Config) -> Result<Server, Error> {
+    pub fn new(
+        listen_address: &SocketAddr,
+        handle: &Handle,
+        config: Config,
+    ) -> Result<Server, Error> {
         let (inner, recv_con) = ServerInner::new(listen_address, handle, config)?;
 
         Ok(Server { recv_con })
