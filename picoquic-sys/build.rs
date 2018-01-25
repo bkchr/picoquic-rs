@@ -35,7 +35,14 @@ fn main() {
         "cargo:rustc-link-search=native={}/build/",
         build_dir.display()
     );
+    println!(
+        "cargo:rustc-link-search=native={}",
+        out_path.display()
+    );
+
     println!("cargo:rustc-link-lib=static=picoquic-core");
+    println!("cargo:rustc-link-lib=static=picotls-core");
+    println!("cargo:rustc-link-lib=static=picotls-openssl");
 
     // generate the rust bindings for the picoquic
     let bindings = bindgen::Builder::default()

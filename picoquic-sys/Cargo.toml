@@ -5,6 +5,7 @@ authors = ["Bastian Köcher <git@kchr.de>"]
 build = "build.rs"
 
 [dependencies]
+openssl-sys = "0.9"
 
 [build-dependencies]
 cmake = "0.1"

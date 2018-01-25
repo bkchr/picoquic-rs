@@ -59,7 +59,10 @@ pub struct StatelessPacketIter<'a> {
 
 impl<'a> StatelessPacketIter<'a> {
     pub fn new(quic: *mut picoquic_quic_t) -> StatelessPacketIter<'a> {
-        StatelessPacketIter { quic, _marker: Default::default() }
+        StatelessPacketIter {
+            quic,
+            _marker: Default::default(),
+        }
     }
 }
 

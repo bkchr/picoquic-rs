@@ -1,5 +1,6 @@
 use error::*;
 use stream::{self, Stream};
+use ffi;
 
 use picoquic_sys::picoquic::{self, picoquic_call_back_event_t, picoquic_close, picoquic_cnx_t,
                              picoquic_set_callback};
@@ -15,6 +16,7 @@ use std::mem;
 use std::rc::Rc;
 use std::cell::RefCell;
 use std::slice;
+use std::net::SocketAddr;
 
 pub enum Message {
     NewStream(Stream),
@@ -23,6 +25,13 @@ pub enum Message {
 
 pub struct Connection {
     msg_recv: UnboundedReceiver<Message>,
+    peer_addr: SocketAddr,
+}
+
+impl Connection {
+    pub fn peer_addr(&self) -> SocketAddr {
+        self.peer_addr
+    }
 }
 
 impl futures::Stream for Connection {
@@ -44,7 +53,11 @@ impl Connection {
     ) -> (Connection, Rc<RefCell<Context>>) {
         let (sender, msg_recv) = unbounded();
 
-        let con = Connection { msg_recv };
+        let peer_addr = ffi::Connection::from(cnx).get_peer_addr();
+        let con = Connection {
+            msg_recv,
+            peer_addr,
+        };
         let (ctx, c_ctx) = Context::new(cnx, sender);
 
         // Now we need to call the callback once manually to process the received data
