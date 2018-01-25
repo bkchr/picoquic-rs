@@ -3,10 +3,8 @@ use super::connection::ConnectionIter;
 use super::stateless_packet::StatelessPacketIter;
 use config::Config;
 
-use picoquic_sys::picoquic::{self, picoquic_create,
-                             picoquic_free, 
-                             picoquic_incoming_packet, picoquic_quic_t,
-                             picoquic_stream_data_cb_fn};
+use picoquic_sys::picoquic::{self, picoquic_create, picoquic_free, picoquic_incoming_packet,
+                             picoquic_quic_t, picoquic_stream_data_cb_fn};
 
 use std::os::raw::c_void;
 use std::ffi::CString;
@@ -93,7 +91,6 @@ impl QuicCtx {
         // TODO, ensure that the iterator lives not longer than the context(some lifetime magic)
         StatelessPacketIter::new(self.quic)
     }
-    
 }
 
 impl Drop for QuicCtx {
@@ -113,4 +110,3 @@ pub fn socket_addr_from_c(sock_addr: *mut picoquic::sockaddr, sock_len: i32) -> 
         .or(addr.as_inet6().map(|v| v.into()))
         .expect("neither ipv4 nor ipv6?")
 }
-

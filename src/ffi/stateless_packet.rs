@@ -1,9 +1,7 @@
 use super::quic_ctx::socket_addr_from_c;
-use picoquic_sys::picoquic::{self,
-                             picoquic_delete_stateless_packet, picoquic_dequeue_stateless_packet,
-                             picoquic_quic_t,
+use picoquic_sys::picoquic::{self, picoquic_delete_stateless_packet,
+                             picoquic_dequeue_stateless_packet, picoquic_quic_t,
                              picoquic_stateless_packet_t};
-
 
 use std::iter::Iterator;
 use std::mem;
@@ -18,7 +16,7 @@ pub struct StatelessPacket {
 
 impl StatelessPacket {
     fn new(packet: *mut picoquic_stateless_packet_t) -> StatelessPacket {
-        StatelessPacket {packet}
+        StatelessPacket { packet }
     }
 
     pub fn get_peer_addr(&self) -> SocketAddr {

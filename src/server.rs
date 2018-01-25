@@ -77,11 +77,16 @@ impl ServerInner {
                 con.delete();
                 break;
             } else {
-                if let Err(e) =
-                    con.create_and_send_packet(&mut self.buffer, &mut self.socket, current_time)
-                {
-                    error!("error while sending connections packets: {:?}", e);
-                }
+                match con.create_and_prepare_packet(&mut self.buffer, current_time) {
+                    Ok(Some(len)) => {
+                        let _ = self.socket
+                            .send_to(&self.buffer[..len], &con.get_peer_addr());
+                    }
+                    Ok(None) => {}
+                    Err(e) => {
+                        error!("error while sending connections packets: {:?}", e);
+                    }
+                };
             }
         }
     }
@@ -105,7 +110,12 @@ impl ServerInner {
             }
         }
 
-        let _ = wrapper(&mut self.buffer, &mut self.socket, &mut self.quic, current_time);
+        let _ = wrapper(
+            &mut self.buffer,
+            &mut self.socket,
+            &mut self.quic,
+            current_time,
+        );
     }
 
     fn send_stateless_packets(&mut self) {
@@ -117,7 +127,8 @@ impl ServerInner {
                 break;
             }
 
-            let _ = self.socket.send_to(packet.get_data(), &packet.get_peer_addr());
+            let _ = self.socket
+                .send_to(packet.get_data(), &packet.get_peer_addr());
         }
     }
 }

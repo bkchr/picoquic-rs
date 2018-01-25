@@ -2,15 +2,13 @@ use error::Error;
 use super::packet::Packet;
 use super::quic_ctx::socket_addr_from_c;
 
-use picoquic_sys::picoquic::{picoquic_cnx_t, picoquic_delete_cnx, picoquic_get_cnx_state,
-                             picoquic_get_peer_addr,picoquic_get_first_cnx, picoquic_get_next_cnx,
-                             picoquic_quic_t,
-                             picoquic_state_enum_picoquic_state_disconnected, self};
+use picoquic_sys::picoquic::{self, picoquic_cnx_t, picoquic_delete_cnx, picoquic_get_cnx_state,
+                             picoquic_get_first_cnx, picoquic_get_next_cnx,
+                             picoquic_get_peer_addr, picoquic_quic_t,
+                             picoquic_state_enum_picoquic_state_disconnected};
 
 use std::net::SocketAddr;
 use std::ptr;
-
-use tokio_core::net::UdpSocket;
 
 pub struct Connection {
     cnx: *mut picoquic_cnx_t,
@@ -33,16 +31,25 @@ impl Connection {
         }
     }
 
-    /// Creates a `Packet` and sends it via the given `UdpSocket`.
+    /// Creates and prepares a `Packet`.
     /// The `Packet` contains any data from this connection(data from streams, ACK's, ...).
-    pub fn create_and_send_packet(
+    /// The `Packet` will be stored in the given buffer.
+    ///
+    /// # Returns
+    /// The length of the `Packet` in the buffer or `None` if the package does not contains any data.
+    pub fn create_and_prepare_packet(
         &self,
         buffer: &mut [u8],
-        socket: &mut UdpSocket,
         current_time: u64,
-    ) -> Result<(), Error> {
-        let packet = Packet::create(buffer, self, current_time)?;
-        packet.send(socket, self.get_peer_addr())
+    ) -> Result<Option<usize>, Error> {
+        let mut packet = Packet::create(buffer)?;
+        let size = packet.prepare(current_time, self)?;
+
+        if packet.contains_data() {
+            Ok(Some(size))
+        } else {
+            Ok(None)
+        }
     }
 
     /// Deletes the underlying C pointer!
