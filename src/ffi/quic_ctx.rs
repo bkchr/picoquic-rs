@@ -1,24 +1,19 @@
 use error::*;
-use super::Connection;
+use super::connection::ConnectionIter;
+use super::stateless_packet::StatelessPacketIter;
 use config::Config;
 
-use picoquic_sys::picoquic::{self, picoquic_cnx_t, picoquic_create,
-                             picoquic_delete_stateless_packet, picoquic_dequeue_stateless_packet,
-                             picoquic_free, picoquic_get_first_cnx, picoquic_get_next_cnx,
+use picoquic_sys::picoquic::{self, picoquic_create,
+                             picoquic_free, 
                              picoquic_incoming_packet, picoquic_quic_t,
-                             picoquic_stateless_packet_t, picoquic_stream_data_cb_fn};
+                             picoquic_stream_data_cb_fn};
 
-use std::iter::Iterator;
 use std::os::raw::c_void;
 use std::ffi::CString;
 use std::ptr;
 use std::net::SocketAddr;
-use std::mem;
-use std::slice;
 
 use socket2::SockAddr;
-
-use tokio_core::net::UdpSocket;
 
 use libc;
 
@@ -94,9 +89,9 @@ impl QuicCtx {
         }
     }
 
-    pub fn stateless_packet_iter(&self) -> StatelessPacketItr {
+    pub fn stateless_packet_iter(&self) -> StatelessPacketIter {
         // TODO, ensure that the iterator lives not longer than the context(some lifetime magic)
-        StatelessPacketItr::new(self.quic)
+        StatelessPacketIter::new(self.quic)
     }
     
 }
@@ -105,57 +100,6 @@ impl Drop for QuicCtx {
     fn drop(&mut self) {
         unsafe {
             picoquic_free(self.quic);
-        }
-    }
-}
-
-pub struct ConnectionIter {
-    current: *mut picoquic_cnx_t,
-}
-
-impl ConnectionIter {
-    pub fn new(quic: *mut picoquic_quic_t) -> ConnectionIter {
-        ConnectionIter {
-            current: unsafe { picoquic_get_first_cnx(quic) },
-        }
-    }
-}
-
-impl Iterator for ConnectionIter {
-    type Item = Connection;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if !self.current.is_null() {
-            let res = Some(Connection::from(self.current));
-
-            self.current = unsafe { picoquic_get_next_cnx(self.current) };
-
-            res
-        } else {
-            None
-        }
-    }
-}
-
-pub struct StatelessPacketItr {
-    quic: *mut picoquic_quic_t,
-}
-
-impl StatelessPacketItr {
-    fn new(quic: *mut picoquic_quic_t) -> StatelessPacketItr {
-        StatelessPacketItr { quic }
-    }
-}
-
-impl Iterator for StatelessPacketItr {
-    type Item = StatelessPacket;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let res = unsafe { picoquic_dequeue_stateless_packet(self.quic) };
-        if res.is_null() {
-            None
-        } else {
-            Some(StatelessPacket::new(res))
         }
     }
 }
@@ -170,43 +114,3 @@ pub fn socket_addr_from_c(sock_addr: *mut picoquic::sockaddr, sock_len: i32) -> 
         .expect("neither ipv4 nor ipv6?")
 }
 
-pub struct StatelessPacket {
-    packet: *mut picoquic_stateless_packet_t,
-}
-
-impl StatelessPacket {
-    fn new(packet: *mut picoquic_stateless_packet_t) -> StatelessPacket {
-        StatelessPacket {packet}
-    }
-
-    pub fn get_peer_addr(&self) -> SocketAddr {
-        let addr = unsafe {
-            mem::transmute::<&mut picoquic::sockaddr_storage, *mut picoquic::sockaddr>(
-                &mut (*self.packet).addr_to,
-            )
-        };
-        let socket_family = unsafe { (*self.packet).addr_to.ss_family };
-
-        let socket_len = if socket_family as i32 == libc::AF_INET {
-            mem::size_of::<libc::sockaddr_in>()
-        } else {
-            mem::size_of::<libc::sockaddr_in6>()
-        };
-
-        socket_addr_from_c(addr, socket_len as i32)
-    }
-
-    pub fn get_data(&self) -> &[u8] {
-        unsafe {
-            slice::from_raw_parts(mem::transmute(&(*self.packet).bytes), (*self.packet).length)
-        }
-    }
-}
-
-impl Drop for StatelessPacket {
-    fn drop(&mut self) {
-        unsafe {
-            picoquic_delete_stateless_packet(self.packet);
-        }
-    }
-}
