@@ -1,10 +1,11 @@
+use error::*;
 use stream::{self, Stream};
 
 use picoquic_sys::picoquic::{self, picoquic_call_back_event_t, picoquic_close, picoquic_cnx_t,
                              picoquic_set_callback};
 
 use futures::sync::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
-use futures::{Future, Poll};
+use futures::{Future, Poll, self};
 use futures::Async::{NotReady, Ready};
 
 use std::collections::HashMap;
@@ -15,13 +16,22 @@ use std::rc::Rc;
 use std::cell::RefCell;
 use std::slice;
 
-enum Message {
+pub enum Message {
     NewStream(Stream),
     Close,
 }
 
 pub struct Connection {
     msg_recv: UnboundedReceiver<Message>,
+}
+
+impl futures::Stream for Connection {
+    type Item = Message;
+    type Error = Error;
+
+    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
+        self.msg_recv.poll().map_err(|_| ErrorKind::Unknown.into())
+    }
 }
 
 impl Connection {

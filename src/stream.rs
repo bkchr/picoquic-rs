@@ -1,12 +1,12 @@
-use futures::sync::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
+use error::*;
+use picoquic_sys::picoquic::{self, picoquic_add_to_stream, picoquic_call_back_event_t,
+                             picoquic_cnx_t, picoquic_reset_stream};
 
 use bytes::Bytes;
 
-use futures::{Future, Poll, Stream as FStream};
+use futures::{Future, Poll, Sink, StartSend, Stream as FStream};
 use futures::Async::Ready;
-
-use picoquic_sys::picoquic::{self, picoquic_add_to_stream, picoquic_call_back_event_t,
-                             picoquic_cnx_t, picoquic_reset_stream};
+use futures::sync::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
 
 pub type Id = u64;
 
@@ -32,6 +32,28 @@ impl Stream {
         };
 
         (stream, ctx)
+    }
+}
+
+impl FStream for Stream {
+    type Item = Message;
+    type Error = Error;
+
+    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
+        self.recv_msg.poll().map_err(|_| ErrorKind::Unknown.into())
+    }
+}
+
+impl Sink for Stream {
+    type SinkItem = Message;
+    type SinkError = <UnboundedSender<Message> as Sink>::SinkError;
+
+    fn start_send(&mut self, item: Self::SinkItem) -> StartSend<Self::SinkItem, Self::SinkError> {
+        self.send_msg.start_send(item)
+    }
+
+    fn poll_complete(&mut self) -> Poll<(), Self::SinkError> {
+        self.send_msg.poll_complete()
     }
 }
 

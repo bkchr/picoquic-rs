@@ -15,13 +15,34 @@ use std::io;
 use std::time::Duration;
 
 use tokio_core::net::UdpSocket;
-use tokio_core::reactor::{Timeout, Handle };
+use tokio_core::reactor::{Handle, Timeout};
 
 use futures::sync::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
-use futures::{Future, Poll};
+use futures::{Future, Poll, Stream};
 use futures::Async::NotReady;
 
 use chrono::Utc;
+
+struct Server {
+    recv_con: UnboundedReceiver<Connection>,
+}
+
+impl Server {
+    pub fn new(listen_address: &SocketAddr, handle: &Handle, config: Config) -> Result<Server, Error> {
+        let (inner, recv_con) = ServerInner::new(listen_address, handle, config)?;
+
+        Ok(Server { recv_con })
+    }
+}
+
+impl Stream for Server {
+    type Item = Connection;
+    type Error = Error;
+
+    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
+        self.recv_con.poll().map_err(|_| ErrorKind::Unknown.into())
+    }
+}
 
 fn get_timestamp() -> u64 {
     let now = Utc::now();
@@ -156,7 +177,8 @@ impl Future for ServerInner {
         // connection and is send via the `UdpSocket`.
         self.send_connection_packets(current_time);
 
-        self.timer.reset(self.quic.get_next_wake_up_time(current_time));
+        self.timer
+            .reset(self.quic.get_next_wake_up_time(current_time));
         // Poll the timer once, to register the current task to be woken up when the timer finishes.
         let _ = self.timer.poll();
 
