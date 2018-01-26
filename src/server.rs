@@ -41,7 +41,10 @@ impl Server {
         // start the inner future
         handle.spawn(inner);
 
-        Ok(Server { recv_con, local_addr })
+        Ok(Server {
+            recv_con,
+            local_addr,
+        })
     }
 
     pub fn local_addr(&self) -> SocketAddr {

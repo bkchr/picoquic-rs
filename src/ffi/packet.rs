@@ -51,8 +51,11 @@ impl<'a> Packet<'a> {
 
 impl<'a> Drop for Packet<'a> {
     fn drop(&mut self) {
-        unsafe {
-            libc::free(self.packet as *mut libc::c_void);
+        // TODO: really shitty :( I hope there is no valid state where the packet contains no data!
+        if !self.contains_data() {
+            unsafe {
+                libc::free(self.packet as *mut libc::c_void);
+            }
         }
     }
 }
