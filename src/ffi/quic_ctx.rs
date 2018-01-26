@@ -45,8 +45,8 @@ impl QuicCtx {
             picoquic_create(
                 connection_buckets,
                 cert_filename.as_ptr(),
-                ptr::null(),
                 key_filename.as_ptr(),
+                ptr::null(),
                 default_callback,
                 default_ctx,
                 None,
@@ -59,6 +59,7 @@ impl QuicCtx {
                 0,
             )
         };
+        assert!(!quic.is_null());
 
         Ok(QuicCtx {
             quic,

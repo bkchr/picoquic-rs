@@ -25,6 +25,7 @@ use chrono::Utc;
 
 pub struct Server {
     recv_con: UnboundedReceiver<Connection>,
+    local_addr: SocketAddr,
 }
 
 impl Server {
@@ -35,10 +36,16 @@ impl Server {
     ) -> Result<Server, Error> {
         let (inner, recv_con) = ServerInner::new(listen_address, handle, config)?;
 
+        let local_addr = inner.local_addr();
+
         // start the inner future
         handle.spawn(inner);
 
-        Ok(Server { recv_con })
+        Ok(Server { recv_con, local_addr })
+    }
+
+    pub fn local_addr(&self) -> SocketAddr {
+        self.local_addr
     }
 }
 
@@ -94,6 +101,10 @@ impl ServerInner {
             },
             recv,
         ))
+    }
+
+    fn local_addr(&self) -> SocketAddr {
+        self.socket.local_addr().unwrap()
     }
 
     /// Iterates over all connections for data that is ready and sends it.

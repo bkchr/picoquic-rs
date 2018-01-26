@@ -21,6 +21,8 @@ fn main() {
 
     let server = Server::new(&([0, 0, 0, 0], 0).into(), &evt_loop.handle(), config).unwrap();
 
+    println!("Server listening on: {}", server.local_addr());
+
     evt_loop
         .run(server.for_each(|c| {
             println!("New connection from: {}", c.peer_addr());
