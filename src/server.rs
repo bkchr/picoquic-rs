@@ -185,25 +185,31 @@ impl Future for ServerInner {
     type Error = ();
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        let current_time = get_timestamp();
+        loop {
+            let current_time = get_timestamp();
 
-        self.check_for_incoming_data(current_time);
+            self.check_for_incoming_data(current_time);
 
-        self.send_stateless_packets();
+            self.send_stateless_packets();
 
-        // This checks all connection contexts if there is data that need to be send
-        assert!(self.context.borrow_mut().poll().is_ok());
+            // This checks all connection contexts if there is data that need to be send
+            assert!(self.context.borrow_mut().poll().is_ok());
 
-        // All data that was send by the connection contexts, is collected to `Packet`'s per
-        // connection and is send via the `UdpSocket`.
-        self.send_connection_packets(current_time);
+            // All data that was send by the connection contexts, is collected to `Packet`'s per
+            // connection and is send via the `UdpSocket`.
+            self.send_connection_packets(current_time);
 
-        self.timer
-            .reset(self.quic.get_next_wake_up_time(current_time));
-        // Poll the timer once, to register the current task to be woken up when the timer finishes.
-        let _ = self.timer.poll();
+            let next_wake = self.quic.get_next_wake_up_time(current_time);
 
-        Ok(NotReady)
+            if let Some(next_wake) = next_wake {
+                self.timer.reset(next_wake);
+                // Poll the timer once, to register the current task to be woken up when the
+                // timer finishes.
+                assert!(self.timer.poll().map(|v| v.is_not_ready()).unwrap_or(false));
+
+                return Ok(NotReady);
+            }
+        }
     }
 }
 

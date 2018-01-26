@@ -102,11 +102,20 @@ impl QuicCtx {
     /// Returns the next time point at which Picoquic needs to get called again. However, it is
     /// possible to call Picoquic before, e.g. when new data arrives or the application wants to
     /// send new data. The time point is absolute.
-    pub fn get_next_wake_up_time(&self, current_time: u64) -> Instant {
+    ///
+    /// # Returns
+    /// Some(_) is the next latest time Picoquic wants to get called again. None intends that
+    /// Picoquic wants to get called again instantly.
+    pub fn get_next_wake_up_time(&self, current_time: u64) -> Option<Instant> {
         let max_delay = self.max_delay.num_microseconds().unwrap();
         let wake_up = unsafe { picoquic_get_next_wake_delay(self.quic, current_time, max_delay) };
-        // TODO: maybe we need to use current_time here.
-        Instant::now() + Duration::microseconds(wake_up).to_std().unwrap()
+
+        if wake_up == 0 {
+            None
+        } else {
+            // TODO: maybe we need to use current_time here.
+            Some(Instant::now() + Duration::microseconds(wake_up).to_std().unwrap())
+        }
     }
 }
 
