@@ -23,25 +23,25 @@ use futures::Async::NotReady;
 
 use chrono::Utc;
 
-pub struct Server {
+pub struct Context {
     recv_con: UnboundedReceiver<Connection>,
     local_addr: SocketAddr,
 }
 
-impl Server {
+impl Context {
     pub fn new(
         listen_address: &SocketAddr,
         handle: &Handle,
         config: Config,
-    ) -> Result<Server, Error> {
-        let (inner, recv_con) = ServerInner::new(listen_address, handle, config)?;
+    ) -> Result<Context, Error> {
+        let (inner, recv_con) = ContextInner::new(listen_address, handle, config)?;
 
         let local_addr = inner.local_addr();
 
         // start the inner future
         handle.spawn(inner);
 
-        Ok(Server {
+        Ok(Context {
             recv_con,
             local_addr,
         })
@@ -52,7 +52,7 @@ impl Server {
     }
 }
 
-impl Stream for Server {
+impl Stream for Context {
     type Item = Connection;
     type Error = Error;
 
@@ -67,9 +67,9 @@ fn get_timestamp() -> u64 {
     now.timestamp() as u64 + now.timestamp_subsec_micros() as u64
 }
 
-struct ServerInner {
+struct ContextInner {
     socket: UdpSocket,
-    context: Rc<RefCell<Context>>,
+    context: Rc<RefCell<CContext>>,
     quic: QuicCtx,
     /// Temporary buffer used for receiving and sending
     buffer: Vec<u8>,
@@ -78,14 +78,14 @@ struct ServerInner {
     timer: Timeout,
 }
 
-impl ServerInner {
+impl ContextInner {
     pub fn new(
         listen_address: &SocketAddr,
         handle: &Handle,
         config: Config,
-    ) -> Result<(ServerInner, UnboundedReceiver<Connection>), Error> {
+    ) -> Result<(ContextInner, UnboundedReceiver<Connection>), Error> {
         let (send, recv) = unbounded();
-        let (context, c_ctx) = Context::new(send);
+        let (context, c_ctx) = CContext::new(send);
 
         let quic = QuicCtx::new(
             config,
@@ -95,7 +95,7 @@ impl ServerInner {
         )?;
 
         Ok((
-            ServerInner {
+            ContextInner {
                 socket: UdpSocket::bind(listen_address, handle).context(ErrorKind::NetworkError)?,
                 context,
                 quic,
@@ -180,7 +180,7 @@ impl ServerInner {
     }
 }
 
-impl Future for ServerInner {
+impl Future for ContextInner {
     type Item = ();
     type Error = ();
 
@@ -213,14 +213,15 @@ impl Future for ServerInner {
     }
 }
 
-struct Context {
+/// The callback context that is given as `ctx` argument to `new_connection_callback`.
+struct CContext {
     connections: Vec<Rc<RefCell<connection::Context>>>,
     send_con: UnboundedSender<Connection>,
 }
 
-impl Context {
-    fn new(send_con: UnboundedSender<Connection>) -> (Rc<RefCell<Context>>, *mut c_void) {
-        let mut ctx = Rc::new(RefCell::new(Context {
+impl CContext {
+    fn new(send_con: UnboundedSender<Connection>) -> (Rc<RefCell<CContext>>, *mut c_void) {
+        let mut ctx = Rc::new(RefCell::new(CContext {
             connections: Vec::new(),
             send_con,
         }));
@@ -241,7 +242,7 @@ impl Context {
     }
 }
 
-impl Future for Context {
+impl Future for CContext {
     type Item = ();
     type Error = ();
 
@@ -256,8 +257,8 @@ impl Future for Context {
     }
 }
 
-fn get_context(ctx: *mut c_void) -> Rc<RefCell<Context>> {
-    unsafe { Rc::from_raw(ctx as *mut RefCell<Context>) }
+fn get_context(ctx: *mut c_void) -> Rc<RefCell<CContext>> {
+    unsafe { Rc::from_raw(ctx as *mut RefCell<CContext>) }
 }
 
 unsafe extern "C" fn new_connection_callback(

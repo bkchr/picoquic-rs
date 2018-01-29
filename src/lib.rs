@@ -15,12 +15,12 @@ extern crate tokio_core;
 
 mod connection;
 mod error;
-mod server;
+mod context;
 mod stream;
 mod config;
 mod ffi;
 
-pub use self::server::Server;
+pub use self::context::Context;
 pub use self::connection::{Connection, Message as CMessage};
 pub use self::stream::{Message as SMessage, Stream};
 pub use self::config::Config;
