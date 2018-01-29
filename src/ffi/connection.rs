@@ -3,9 +3,10 @@ use super::packet::Packet;
 use super::quic_ctx::{socket_addr_from_c, QuicCtx};
 use stream;
 
-use picoquic_sys::picoquic::{self, picoquic_cnx_t, picoquic_create_cnx, picoquic_delete_cnx,
-                             picoquic_get_cnx_state, picoquic_get_first_cnx,
+use picoquic_sys::picoquic::{self, picoquic_close, picoquic_cnx_t, picoquic_create_cnx,
+                             picoquic_delete_cnx, picoquic_get_cnx_state, picoquic_get_first_cnx,
                              picoquic_get_next_cnx, picoquic_get_peer_addr, picoquic_quic_t,
+                             picoquic_state_enum_picoquic_state_client_ready,
                              picoquic_state_enum_picoquic_state_disconnected};
 
 use std::net::SocketAddr;
@@ -83,8 +84,20 @@ impl Connection {
         self.get_state() == picoquic_state_enum_picoquic_state_disconnected
     }
 
+    /// Is the connection ready to be used?
+    pub fn is_ready(&self) -> bool {
+        self.get_state() == picoquic_state_enum_picoquic_state_client_ready
+    }
+
     fn get_state(&self) -> u32 {
         unsafe { picoquic_get_cnx_state(self.cnx) }
+    }
+
+    pub fn close(&self) {
+        //TODO maybe replace 0 with an appropriate error code
+        unsafe {
+            picoquic_close(self.cnx, 0);
+        }
     }
 
     pub(crate) fn get_stream_id(next_id: u64, is_client: bool, stype: stream::Type) -> u64 {

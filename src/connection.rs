@@ -2,7 +2,7 @@ use error::*;
 use stream::{self, Stream};
 use ffi::{self, QuicCtx};
 
-use picoquic_sys::picoquic::{self, picoquic_call_back_event_t, picoquic_close, picoquic_cnx_t,
+use picoquic_sys::picoquic::{self, picoquic_call_back_event_t, picoquic_cnx_t,
                              picoquic_set_callback};
 
 use futures::sync::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
@@ -98,11 +98,11 @@ impl Connection {
     }
 
     pub fn new_bidirectional_stream(&mut self) -> NewStreamFuture {
-        self.new_stream.new_unidirectional_stream()
+        self.new_stream.new_bidirectional_stream()
     }
 
     pub fn new_unidirectional_stream(&mut self) -> NewStreamFuture {
-        self.new_stream.new_bidirectional_stream()
+        self.new_stream.new_unidirectional_stream()
     }
 
     pub fn get_new_stream(&self) -> NewStream {
@@ -114,11 +114,13 @@ pub(crate) struct Context {
     send_msg: UnboundedSender<Message>,
     recv_create_stream: UnboundedReceiver<(stream::Type, oneshot::Sender<Stream>)>,
     streams: HashMap<stream::Id, stream::Context>,
-    cnx: *mut picoquic_cnx_t,
+    cnx: ffi::Connection,
     closed: bool,
     /// Is the connection initiated by us?
     is_client: bool,
     next_stream_id: u64,
+    is_initiated: bool,
+    waiting_streams: Vec<(Stream, oneshot::Sender<Stream>)>,
 }
 
 impl Context {
@@ -136,11 +138,13 @@ impl Context {
         let mut ctx = Rc::new(RefCell::new(Context {
             send_msg,
             streams: Default::default(),
-            cnx,
+            cnx: ffi::Connection::from(cnx),
             closed: false,
             recv_create_stream,
             is_client,
             next_stream_id: 0,
+            is_initiated: false,
+            waiting_streams: Vec::new(),
         }));
 
         // Convert the `Context` to a `*mut c_void` and reset the callback to the
@@ -164,7 +168,7 @@ impl Context {
                 None
             }
             Vacant(entry) => {
-                let (stream, mut ctx) = Stream::new(id, self.cnx);
+                let (stream, mut ctx) = Stream::new(id, self.cnx.as_ptr());
 
                 ctx.recv_data(data, event);
                 entry.insert(ctx);
@@ -193,23 +197,34 @@ impl Context {
                         ffi::Connection::get_stream_id(self.next_stream_id, self.is_client, stype);
                     self.next_stream_id += 1;
 
-                    let (stream, ctx) = Stream::new(id, self.cnx);
+                    let (stream, ctx) = Stream::new(id, self.cnx.as_ptr());
                     assert!(self.streams.insert(id, ctx).is_none());
 
-                    let _ = sender.send(stream);
+                    if self.is_initiated {
+                        let _ = sender.send(stream);
+                    } else {
+                        self.waiting_streams.push((stream, sender));
+                    }
                 }
             }
         }
     }
 
     fn close(&mut self) {
-        //TODO maybe replace 0 with an appropriate error code
-        unsafe {
-            picoquic_close(self.cnx, 0);
-        }
-
+        self.cnx.close();
         self.closed = true;
         let _ = self.send_msg.unbounded_send(Message::Close);
+    }
+
+    fn initiate(&mut self) {
+        if self.is_initiated || !self.cnx.is_ready() {
+            return;
+        }
+
+        self.waiting_streams.drain(..).for_each(|(stream, sender)| {
+            let _ = sender.send(stream);
+        });
+        self.is_initiated = true;
     }
 }
 
@@ -221,6 +236,8 @@ impl Future for Context {
         if self.closed {
             return Ok(Ready(()));
         }
+
+        self.initiate();
 
         self.streams
             .retain(|_, s| s.poll().map(|r| r.is_not_ready()).unwrap_or(false));

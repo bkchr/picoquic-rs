@@ -20,7 +20,7 @@ use tokio_core::reactor::{Handle, Timeout};
 use futures::sync::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
 use futures::sync::oneshot;
 use futures::{Future, Poll, Stream};
-use futures::Async::{Ready, NotReady };
+use futures::Async::{NotReady, Ready};
 
 use chrono::Utc;
 
@@ -87,7 +87,10 @@ impl ContextInner {
                 Ok(Ready(Some((addr, sender)))) => {
                     let (con, ctx) = match Connection::new(&self.quic, addr, current_time) {
                         Ok(r) => r,
-                        Err(e) => { error!("could not create new connection: {:?}", e); continue; }
+                        Err(e) => {
+                            error!("could not create new connection: {:?}", e);
+                            continue;
+                        }
                     };
 
                     self.context.borrow_mut().connections.push(ctx);
@@ -181,7 +184,7 @@ impl Future for ContextInner {
 
             self.send_stateless_packets();
 
-            // This checks all connection contexts if there is data that need to be send
+            // This checks all connection contexts if there is data that needs to be send
             assert!(self.context.borrow_mut().poll().is_ok());
 
             // All data that was send by the connection contexts, is collected to `Packet`'s per
@@ -258,6 +261,7 @@ unsafe extern "C" fn new_connection_callback(
     event: picoquic_call_back_event_t,
     ctx: *mut c_void,
 ) {
+    eprintln!("NEWCON");
     assert!(!ctx.is_null());
 
     let ctx = get_context(ctx);
@@ -269,10 +273,9 @@ unsafe extern "C" fn new_connection_callback(
     mem::forget(ctx);
 }
 
-
 #[derive(Clone)]
 pub struct Connect {
-    send: UnboundedSender<(SocketAddr, oneshot::Sender<Connection> )>,
+    send: UnboundedSender<(SocketAddr, oneshot::Sender<Connection>)>,
 }
 
 impl Connect {

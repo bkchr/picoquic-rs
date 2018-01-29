@@ -115,6 +115,7 @@ impl Context {
     fn send_data(&mut self, data: Bytes) {
         //TODO: `set_fin`(last argument) should be configurable
         unsafe {
+            // TODO handle the result
             picoquic_add_to_stream(self.cnx, self.id, data.as_ptr(), data.len(), 0);
         }
     }
