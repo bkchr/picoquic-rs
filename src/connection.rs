@@ -1,6 +1,6 @@
 use error::*;
 use stream::{self, Stream};
-use ffi;
+use ffi::{self, QuicCtx};
 
 use picoquic_sys::picoquic::{self, picoquic_call_back_event_t, picoquic_close, picoquic_cnx_t,
                              picoquic_set_callback};
@@ -44,7 +44,7 @@ impl futures::Stream for Connection {
 }
 
 impl Connection {
-    pub(crate) fn new(
+    pub(crate) fn from_incoming(
         cnx: *mut picoquic_cnx_t,
         stream_id: stream::Id,
         data: *mut u8,
@@ -66,6 +66,28 @@ impl Connection {
         }
 
         (con, ctx)
+    }
+
+    pub(crate) fn new(
+        quic: &QuicCtx,
+        peer_addr: SocketAddr,
+        current_time: u64,
+    ) -> Result<(Connection, Rc<RefCell<Context>>), Error> {
+        let cnx = ffi::Connection::new(quic, peer_addr, current_time);
+
+        if cnx.is_null() {
+            return Err(ErrorKind::Unknown.into());
+        }
+
+        let (sender, msg_recv) = unbounded();
+
+        let con = Connection {
+            msg_recv,
+            peer_addr,
+        };
+        let (ctx, _) = Context::new(cnx, sender);
+
+        Ok((con, ctx))
     }
 }
 

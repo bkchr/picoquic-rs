@@ -67,6 +67,10 @@ impl QuicCtx {
         })
     }
 
+    pub fn as_ptr(&self) -> *mut picoquic_quic_t {
+        self.quic
+    }
+
     pub fn connection_iter(&self) -> ConnectionIter {
         ConnectionIter::new(self.quic)
     }

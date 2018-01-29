@@ -16,6 +16,7 @@ extern crate tokio_core;
 mod connection;
 mod error;
 mod context;
+mod context_inner;
 mod stream;
 mod config;
 mod ffi;

@@ -1,20 +1,39 @@
 use error::Error;
 use super::packet::Packet;
-use super::quic_ctx::socket_addr_from_c;
+use super::quic_ctx::{socket_addr_from_c, QuicCtx};
 
-use picoquic_sys::picoquic::{self, picoquic_cnx_t, picoquic_delete_cnx, picoquic_get_cnx_state,
-                             picoquic_get_first_cnx, picoquic_get_next_cnx,
-                             picoquic_get_peer_addr, picoquic_quic_t,
+use picoquic_sys::picoquic::{self, picoquic_cnx_t, picoquic_create_cnx, picoquic_delete_cnx,
+                             picoquic_get_cnx_state, picoquic_get_first_cnx,
+                             picoquic_get_next_cnx, picoquic_get_peer_addr, picoquic_quic_t,
                              picoquic_state_enum_picoquic_state_disconnected};
 
 use std::net::SocketAddr;
 use std::ptr;
+
+use socket2::SockAddr;
 
 pub struct Connection {
     cnx: *mut picoquic_cnx_t,
 }
 
 impl Connection {
+    pub fn new(quic: &QuicCtx, server_addr: SocketAddr, current_time: u64) -> *mut picoquic_cnx_t {
+        let server_addr = SockAddr::from(server_addr);
+
+        unsafe {
+            picoquic_create_cnx(
+                quic.as_ptr(),
+                0,
+                server_addr.as_ptr() as *mut picoquic::sockaddr,
+                current_time,
+                0,
+                ptr::null_mut(),
+                ptr::null_mut(),
+                1,
+            )
+        }
+    }
+
     pub fn as_ptr(&self) -> *mut picoquic_cnx_t {
         self.cnx
     }
