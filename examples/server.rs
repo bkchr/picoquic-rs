@@ -2,7 +2,7 @@ extern crate futures;
 extern crate picoquic;
 extern crate tokio_core;
 
-use picoquic::{Config, Server};
+use picoquic::{Config, Context};
 
 use tokio_core::reactor::Core;
 
@@ -19,7 +19,7 @@ fn main() {
         reset_seed: None,
     };
 
-    let server = Server::new(&([0, 0, 0, 0], 22222).into(), &evt_loop.handle(), config).unwrap();
+    let server = Context::new(&([0, 0, 0, 0], 22222).into(), &evt_loop.handle(), config).unwrap();
 
     println!("Server listening on: {}", server.local_addr());
 

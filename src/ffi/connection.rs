@@ -103,7 +103,7 @@ impl Connection {
         if let stream::Type::Unidirectional = stype {
             id |= 2;
         }
-        
+
         id
     }
 }
@@ -142,3 +142,71 @@ impl Iterator for ConnectionIter {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn client_bidirectional_stream_id_generation() {
+        assert_eq!(
+            4,
+            Connection::get_stream_id(0, true, stream::Type::Bidirectional)
+        );
+        assert_eq!(
+            8,
+            Connection::get_stream_id(1, true, stream::Type::Bidirectional)
+        );
+        assert_eq!(
+            12,
+            Connection::get_stream_id(2, true, stream::Type::Bidirectional)
+        );
+    }
+
+    #[test]
+    fn client_unidirectional_stream_id_generation() {
+        assert_eq!(
+            6,
+            Connection::get_stream_id(0, true, stream::Type::Unidirectional)
+        );
+        assert_eq!(
+            10,
+            Connection::get_stream_id(1, true, stream::Type::Unidirectional)
+        );
+        assert_eq!(
+            14,
+            Connection::get_stream_id(2, true, stream::Type::Unidirectional)
+        );
+    }
+
+    #[test]
+    fn server_bidirectional_stream_id_generation() {
+        assert_eq!(
+            5,
+            Connection::get_stream_id(0, false, stream::Type::Bidirectional)
+        );
+        assert_eq!(
+            9,
+            Connection::get_stream_id(1, false, stream::Type::Bidirectional)
+        );
+        assert_eq!(
+            13,
+            Connection::get_stream_id(2, false, stream::Type::Bidirectional)
+        );
+    }
+
+    #[test]
+    fn server_unidirectional_stream_id_generation() {
+        assert_eq!(
+            7,
+            Connection::get_stream_id(0, false, stream::Type::Unidirectional)
+        );
+        assert_eq!(
+            11,
+            Connection::get_stream_id(1, false, stream::Type::Unidirectional)
+        );
+        assert_eq!(
+            15,
+            Connection::get_stream_id(2, false, stream::Type::Unidirectional)
+        );
+    }
+}
