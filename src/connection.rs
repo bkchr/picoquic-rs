@@ -6,7 +6,8 @@ use picoquic_sys::picoquic::{self, picoquic_call_back_event_t, picoquic_close, p
                              picoquic_set_callback};
 
 use futures::sync::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
-use futures::{self, Future, Poll};
+use futures::sync::oneshot;
+use futures::{self, Future, Poll, Stream as FStream};
 use futures::Async::{NotReady, Ready};
 
 use std::collections::HashMap;
@@ -26,6 +27,7 @@ pub enum Message {
 pub struct Connection {
     msg_recv: UnboundedReceiver<Message>,
     peer_addr: SocketAddr,
+    new_stream: NewStream,
 }
 
 impl Connection {
@@ -54,11 +56,14 @@ impl Connection {
         let (sender, msg_recv) = unbounded();
 
         let peer_addr = ffi::Connection::from(cnx).get_peer_addr();
+
+        let (ctx, c_ctx, new_stream) = Context::new(cnx, sender, false);
+
         let con = Connection {
             msg_recv,
             peer_addr,
+            new_stream,
         };
-        let (ctx, c_ctx) = Context::new(cnx, sender);
 
         // Now we need to call the callback once manually to process the received data
         unsafe {
@@ -81,33 +86,61 @@ impl Connection {
 
         let (sender, msg_recv) = unbounded();
 
+        let (ctx, _, new_stream) = Context::new(cnx, sender, true);
+
         let con = Connection {
             msg_recv,
             peer_addr,
+            new_stream,
         };
-        let (ctx, _) = Context::new(cnx, sender);
 
         Ok((con, ctx))
+    }
+
+    pub fn new_bidirectional_stream(&mut self) -> NewStreamFuture {
+        self.new_stream.new_unidirectional_stream()
+    }
+
+    pub fn new_unidirectional_stream(&mut self) -> NewStreamFuture {
+        self.new_stream.new_bidirectional_stream()
+    }
+
+    pub fn get_new_stream(&self) -> NewStream {
+        self.new_stream.clone()
     }
 }
 
 pub(crate) struct Context {
     send_msg: UnboundedSender<Message>,
+    recv_create_stream: UnboundedReceiver<(stream::Type, oneshot::Sender<Stream>)>,
     streams: HashMap<stream::Id, stream::Context>,
     cnx: *mut picoquic_cnx_t,
     closed: bool,
+    /// Is the connection initiated by us?
+    is_client: bool,
+    next_stream_id: u64,
 }
 
 impl Context {
     fn new(
         cnx: *mut picoquic_cnx_t,
         send_msg: UnboundedSender<Message>,
-    ) -> (Rc<RefCell<Context>>, *mut c_void) {
+        is_client: bool,
+    ) -> (Rc<RefCell<Context>>, *mut c_void, NewStream) {
+        let (send_create_stream, recv_create_stream) = unbounded();
+
+        let new_stream = NewStream {
+            send: send_create_stream,
+        };
+
         let mut ctx = Rc::new(RefCell::new(Context {
             send_msg,
             streams: Default::default(),
             cnx,
             closed: false,
+            recv_create_stream,
+            is_client,
+            next_stream_id: 0,
         }));
 
         // Convert the `Context` to a `*mut c_void` and reset the callback to the
@@ -121,7 +154,7 @@ impl Context {
         // The reference counter needs to be 2 at this point
         assert_eq!(2, Rc::strong_count(&mut ctx));
 
-        (ctx, c_ctx)
+        (ctx, c_ctx, new_stream)
     }
 
     fn recv_data(&mut self, id: stream::Id, data: &[u8], event: picoquic_call_back_event_t) {
@@ -150,6 +183,25 @@ impl Context {
         }
     }
 
+    /// Check for new streams to create and create these requested streams.
+    fn check_create_stream_requests(&mut self) {
+        loop {
+            match self.recv_create_stream.poll() {
+                Ok(Ready(None)) | Ok(NotReady) | Err(_) => break,
+                Ok(Ready(Some((stype, sender)))) => {
+                    let id =
+                        ffi::Connection::get_stream_id(self.next_stream_id, self.is_client, stype);
+                    self.next_stream_id += 1;
+
+                    let (stream, ctx) = Stream::new(id, self.cnx);
+                    assert!(self.streams.insert(id, ctx).is_none());
+
+                    let _ = sender.send(stream);
+                }
+            }
+        }
+    }
+
     fn close(&mut self) {
         //TODO maybe replace 0 with an appropriate error code
         unsafe {
@@ -172,6 +224,9 @@ impl Future for Context {
 
         self.streams
             .retain(|_, s| s.poll().map(|r| r.is_not_ready()).unwrap_or(false));
+
+        self.check_create_stream_requests();
+
         Ok(NotReady)
     }
 }
@@ -204,5 +259,41 @@ unsafe extern "C" fn recv_data_callback(
 
         // the context must not be dereferenced!
         mem::forget(ctx);
+    }
+}
+
+#[derive(Clone)]
+pub struct NewStream {
+    send: UnboundedSender<(stream::Type, oneshot::Sender<Stream>)>,
+}
+
+impl NewStream {
+    pub fn new_bidirectional_stream(&mut self) -> NewStreamFuture {
+        self.new_stream(stream::Type::Bidirectional)
+    }
+
+    pub fn new_unidirectional_stream(&mut self) -> NewStreamFuture {
+        self.new_stream(stream::Type::Unidirectional)
+    }
+
+    fn new_stream(&mut self, stype: stream::Type) -> NewStreamFuture {
+        let (send, recv) = oneshot::channel();
+
+        let _ = self.send.unbounded_send((stype, send));
+
+        NewStreamFuture { recv }
+    }
+}
+
+pub struct NewStreamFuture {
+    recv: oneshot::Receiver<Stream>,
+}
+
+impl Future for NewStreamFuture {
+    type Item = Stream;
+    type Error = Error;
+
+    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
+        self.recv.poll().map_err(|_| ErrorKind::Unknown.into())
     }
 }

@@ -1,6 +1,7 @@
 use error::Error;
 use super::packet::Packet;
 use super::quic_ctx::{socket_addr_from_c, QuicCtx};
+use stream;
 
 use picoquic_sys::picoquic::{self, picoquic_cnx_t, picoquic_create_cnx, picoquic_delete_cnx,
                              picoquic_get_cnx_state, picoquic_get_first_cnx,
@@ -85,6 +86,26 @@ impl Connection {
     fn get_state(&self) -> u32 {
         unsafe { picoquic_get_cnx_state(self.cnx) }
     }
+
+    pub(crate) fn get_stream_id(next_id: u64, is_client: bool, stype: stream::Type) -> u64 {
+        // Stream 0, 1, 2 and 3 are reserved.
+        // Client first usable stream is 4, Server first usable stream is 5.
+        // Client gets even stream ids and server gets odd stream ids.
+        let mut id = next_id + 1;
+
+        id <<= 2;
+
+        if !is_client {
+            id |= 1;
+        }
+
+        // Unidirectional sets the second bit to 1
+        if let stream::Type::Unidirectional = stype {
+            id |= 2;
+        }
+        
+        id
+    }
 }
 
 impl From<*mut picoquic_cnx_t> for Connection {
@@ -120,3 +141,4 @@ impl Iterator for ConnectionIter {
         }
     }
 }
+

@@ -15,6 +15,11 @@ pub enum Message {
     Data(Bytes),
 }
 
+pub(crate) enum Type {
+    Unidirectional,
+    Bidirectional,
+}
+
 pub struct Stream {
     recv_msg: UnboundedReceiver<Message>,
     send_msg: UnboundedSender<Message>,
