@@ -261,7 +261,6 @@ unsafe extern "C" fn new_connection_callback(
     event: picoquic_call_back_event_t,
     ctx: *mut c_void,
 ) {
-    eprintln!("NEWCON");
     assert!(!ctx.is_null());
 
     let ctx = get_context(ctx);

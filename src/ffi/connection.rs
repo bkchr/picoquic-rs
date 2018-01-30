@@ -20,6 +20,8 @@ pub struct Connection {
 
 impl Connection {
     pub fn new(quic: &QuicCtx, server_addr: SocketAddr, current_time: u64) -> *mut picoquic_cnx_t {
+        assert!(!server_addr.ip().is_unspecified(), "server address must not be unspecified!");
+
         let server_addr = SockAddr::from(server_addr);
 
         unsafe {
@@ -221,5 +223,11 @@ mod tests {
             15,
             Connection::get_stream_id(2, false, stream::Type::Unidirectional)
         );
+    }
+
+    #[test]
+    #[should_panic(expected = "server address must not be unspecified!")]
+    fn do_not_accept_unspecified_ip_address() {
+        Connection::new(&QuicCtx::dummy(), ([0,0,0,0], 12345).into(), 0);
     }
 }

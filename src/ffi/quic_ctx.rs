@@ -67,6 +67,17 @@ impl QuicCtx {
         })
     }
 
+    /// Creates a dummy instance, that uses a `NULL` pointer for the quic context.
+    /// This function must only be used in tests!
+    #[doc(hidden)]
+    #[cfg(test)]
+    pub fn dummy() -> QuicCtx {
+        QuicCtx {
+            quic: ptr::null_mut(),
+            max_delay: Duration::seconds(10),
+        }
+    }
+
     pub fn as_ptr(&self) -> *mut picoquic_quic_t {
         self.quic
     }
