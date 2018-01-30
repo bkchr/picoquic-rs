@@ -10,17 +10,16 @@ use std::os::raw::c_void;
 use std::ffi::CString;
 use std::ptr;
 use std::net::SocketAddr;
-use std::time::Instant;
+use std::time::{Duration, Instant };
 
 use socket2::SockAddr;
 
 use libc;
 
-use chrono::Duration;
-
 pub struct QuicCtx {
     quic: *mut picoquic_quic_t,
     max_delay: Duration,
+    clock: Instant,
 }
 
 impl QuicCtx {
@@ -28,7 +27,6 @@ impl QuicCtx {
         config: Config,
         default_ctx: *mut c_void,
         default_callback: picoquic_stream_data_cb_fn,
-        current_time: u64,
     ) -> Result<QuicCtx, Error> {
         // The number of buckets that picoquic will allocate for connections
         // The buckets itself are a linked list
@@ -41,6 +39,8 @@ impl QuicCtx {
             .map(|mut v| v.as_mut_ptr())
             .unwrap_or_else(|| ptr::null_mut());
 
+        let clock = Instant::now();
+
         let quic = unsafe {
             picoquic_create(
                 connection_buckets,
@@ -52,7 +52,7 @@ impl QuicCtx {
                 None,
                 ptr::null_mut(),
                 reset_seed,
-                current_time,
+                clock.elapsed().as_micro_seconds(),
                 ptr::null_mut(),
                 ptr::null(),
                 ptr::null(),
@@ -63,7 +63,8 @@ impl QuicCtx {
 
         Ok(QuicCtx {
             quic,
-            max_delay: Duration::seconds(10),
+            max_delay: Duration::from_secs(10),
+            clock,
         })
     }
 
@@ -74,7 +75,8 @@ impl QuicCtx {
     pub fn dummy() -> QuicCtx {
         QuicCtx {
             quic: ptr::null_mut(),
-            max_delay: Duration::seconds(10),
+            max_delay: Duration::from_secs(10),
+            clock: Instant::now()
         }
     }
 
@@ -126,15 +128,21 @@ impl QuicCtx {
     /// Some(_) is the next latest time Picoquic wants to get called again. None intends that
     /// Picoquic wants to get called again instantly.
     pub fn get_next_wake_up_time(&self, current_time: u64) -> Option<Instant> {
-        let max_delay = self.max_delay.num_microseconds().unwrap();
+        let max_delay = self.max_delay.as_micro_seconds() as i64;
         let wake_up = unsafe { picoquic_get_next_wake_delay(self.quic, current_time, max_delay) };
 
         if wake_up == 0 {
             None
         } else {
             // TODO: maybe we need to use current_time here.
-            Some(Instant::now() + Duration::microseconds(wake_up).to_std().unwrap())
+            Some(Instant::now() + Duration::from_micro_seconds(wake_up as u64))
         }
+    }
+
+    /// Returns the current time in micro seconds for Picoquic.
+    /// The time represents the elapsed time since the creation of this context.
+    pub fn get_current_time(&self) -> u64 {
+        self.clock.elapsed().as_micro_seconds()
     }
 }
 
@@ -154,4 +162,43 @@ pub fn socket_addr_from_c(sock_addr: *mut picoquic::sockaddr, sock_len: i32) -> 
         .map(|v| v.into())
         .or(addr.as_inet6().map(|v| v.into()))
         .expect("neither ipv4 nor ipv6?")
+}
+
+pub trait MicroSeconds {
+    fn from_micro_seconds(micros: u64) -> Self;
+    fn as_micro_seconds(&self) -> u64;
+}
+
+impl MicroSeconds for Duration {
+    fn from_micro_seconds(micros: u64) -> Duration {
+        let secs = micros / 1_000_000;
+        let nanos = micros % 1_000_000 * 1000;
+
+        Duration::new(secs, nanos as u32)
+    }
+
+    fn as_micro_seconds(&self) -> u64 {
+        self.as_secs() * 1_000_000 + self.subsec_nanos() as u64 / 1000
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn from_micro_seconds() {
+        assert_eq!(Duration::from_secs(1), Duration::from_micro_seconds(1_000_000));
+        assert_eq!(Duration::new(0, 1000), Duration::from_micro_seconds(1));
+        assert_eq!(Duration::new(1, 5000), Duration::from_micro_seconds(1_000_005));
+        assert_eq!(Duration::new(0, 500000), Duration::from_micro_seconds(500));
+    }
+
+    #[test]
+    fn as_micro_seconds() {
+        assert_eq!(Duration::from_secs(1).as_micro_seconds(), 1_000_000);
+        assert_eq!(Duration::new(0, 1000).as_micro_seconds(), 1);
+        assert_eq!(Duration::new(1, 5000).as_micro_seconds(), 1_000_005);
+        assert_eq!(Duration::new(0, 500000).as_micro_seconds(), 500);
+    }
 }

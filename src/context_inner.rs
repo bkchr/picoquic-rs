@@ -2,7 +2,7 @@ use error::*;
 use stream;
 use connection::{self, Connection};
 use config::Config;
-use ffi::QuicCtx;
+use ffi::{MicroSeconds, QuicCtx};
 
 use picoquic_sys::picoquic::{picoquic_call_back_event_t, picoquic_cnx_t, PICOQUIC_MAX_PACKET_SIZE};
 
@@ -12,7 +12,7 @@ use std::rc::Rc;
 use std::mem;
 use std::cell::RefCell;
 use std::io;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use tokio_core::net::UdpSocket;
 use tokio_core::reactor::{Handle, Timeout};
@@ -21,14 +21,6 @@ use futures::sync::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
 use futures::sync::oneshot;
 use futures::{Future, Poll, Stream};
 use futures::Async::{NotReady, Ready};
-
-use chrono::Utc;
-
-fn get_timestamp() -> u64 {
-    let now = Utc::now();
-
-    now.timestamp() as u64 + now.timestamp_subsec_micros() as u64
-}
 
 pub struct ContextInner {
     socket: UdpSocket,
@@ -47,16 +39,18 @@ impl ContextInner {
         listen_address: &SocketAddr,
         handle: &Handle,
         config: Config,
-    ) -> Result<(ContextInner, UnboundedReceiver<Connection>, NewConnectionHandle), Error> {
+    ) -> Result<
+        (
+            ContextInner,
+            UnboundedReceiver<Connection>,
+            NewConnectionHandle,
+        ),
+        Error,
+    > {
         let (send, recv) = unbounded();
         let (context, c_ctx) = CContext::new(send);
 
-        let quic = QuicCtx::new(
-            config,
-            c_ctx,
-            Some(new_connection_callback),
-            get_timestamp(),
-        )?;
+        let quic = QuicCtx::new(config, c_ctx, Some(new_connection_callback))?;
 
         let (send_connect, recv_connect) = unbounded();
         let connect = NewConnectionHandle { send: send_connect };
@@ -168,6 +162,15 @@ impl ContextInner {
                 .send_to(packet.get_data(), &packet.get_peer_addr());
         }
     }
+
+    /// Resets the timer to fire next at the given time.
+    /// Returns true if polling the timer returned `NotReady`, otherwise false.
+    fn reset_timer(&mut self, at: Instant) -> bool {
+        self.timer.reset(at);
+        // Poll the timer once, to register the current task to be woken up when the
+        // timer finishes.
+        self.timer.poll().map(|v| v.is_not_ready()).unwrap_or(false)
+    }
 }
 
 impl Future for ContextInner {
@@ -175,8 +178,15 @@ impl Future for ContextInner {
     type Error = ();
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
+        let mut loops_without_sleep = 0;
+        // The maximum number of times, we are allowed to loop without returning from this future.
+        // In some circumstances this loop runs forever(Picquic always return `wake_time = 0`)
+        // and that prevents epoll to deliver new events. To circumvent the problem,
+        // we sleep for 10000 micro seconds.
+        let max_loops_without_sleep = 5;
+
         loop {
-            let current_time = get_timestamp();
+            let current_time = self.quic.get_current_time();
 
             self.check_for_new_connection_request(current_time);
 
@@ -193,13 +203,20 @@ impl Future for ContextInner {
 
             let next_wake = self.quic.get_next_wake_up_time(current_time);
 
-            if let Some(next_wake) = next_wake {
-                self.timer.reset(next_wake);
-                // Poll the timer once, to register the current task to be woken up when the
-                // timer finishes.
-                assert!(self.timer.poll().map(|v| v.is_not_ready()).unwrap_or(false));
-
+            if loops_without_sleep >= max_loops_without_sleep {
+                assert!(self.reset_timer(Instant::now() + Duration::from_micro_seconds(10000)));
                 return Ok(NotReady);
+            } else if let Some(next_wake) = next_wake {
+                if !self.reset_timer(next_wake) {
+                    // It can happen that the timer fires instantly, because the given `next_wake`
+                    // time point wasn't far enough in the future or the system is under high load,
+                    // etc.... So, we just execute the loop another time.
+                    loops_without_sleep += 1;
+                } else {
+                    return Ok(NotReady);
+                }
+            } else {
+                loops_without_sleep += 1;
             }
         }
     }

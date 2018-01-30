@@ -1,5 +1,4 @@
 extern crate bytes;
-extern crate chrono;
 extern crate failure;
 #[macro_use]
 extern crate failure_derive;
