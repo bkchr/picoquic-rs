@@ -27,7 +27,7 @@ pub enum Message {
 pub struct Connection {
     msg_recv: UnboundedReceiver<Message>,
     peer_addr: SocketAddr,
-    new_stream: NewStream,
+    new_stream_handle: NewStreamHandle,
 }
 
 impl Connection {
@@ -46,6 +46,7 @@ impl futures::Stream for Connection {
 }
 
 impl Connection {
+    /// Creates a new `Connection` from an incoming connection.
     pub(crate) fn from_incoming(
         cnx: *mut picoquic_cnx_t,
         stream_id: stream::Id,
@@ -66,6 +67,7 @@ impl Connection {
         (con, ctx)
     }
 
+    /// Creates a new `Connection` to the given `peer_addr` server.
     pub(crate) fn new(
         quic: &QuicCtx,
         peer_addr: SocketAddr,
@@ -85,27 +87,30 @@ impl Connection {
     ) -> (Connection, Rc<RefCell<Context>>, *mut c_void) {
         let (sender, msg_recv) = unbounded();
 
-        let (ctx, c_ctx, new_stream) = Context::new(cnx, sender, is_client);
+        let (ctx, c_ctx, new_stream_handle) = Context::new(cnx, sender, is_client);
 
         let con = Connection {
             msg_recv,
             peer_addr,
-            new_stream,
+            new_stream_handle,
         };
 
         (con, ctx, c_ctx)
     }
 
+    /// Creates a new bidirectional `Stream`.
     pub fn new_bidirectional_stream(&mut self) -> NewStreamFuture {
-        self.new_stream.new_bidirectional_stream()
+        self.new_stream_handle.new_bidirectional_stream()
     }
 
+    /// Creates a new unidirectional `Stream`.
     pub fn new_unidirectional_stream(&mut self) -> NewStreamFuture {
-        self.new_stream.new_unidirectional_stream()
+        self.new_stream_handle.new_unidirectional_stream()
     }
 
-    pub fn get_new_stream(&self) -> NewStream {
-        self.new_stream.clone()
+    /// Returns a handle to create new `Stream`s for this connection.
+    pub fn get_new_stream_handle(&self) -> NewStreamHandle {
+        self.new_stream_handle.clone()
     }
 }
 
@@ -127,10 +132,10 @@ impl Context {
         cnx: ffi::Connection,
         send_msg: UnboundedSender<Message>,
         is_client: bool,
-    ) -> (Rc<RefCell<Context>>, *mut c_void, NewStream) {
+    ) -> (Rc<RefCell<Context>>, *mut c_void, NewStreamHandle) {
         let (send_create_stream, recv_create_stream) = unbounded();
 
-        let new_stream = NewStream {
+        let new_stream_handle = NewStreamHandle {
             send: send_create_stream,
         };
 
@@ -156,11 +161,11 @@ impl Context {
         // The reference counter needs to be 2 at this point
         assert_eq!(2, Rc::strong_count(&mut ctx));
 
-        (ctx, c_ctx, new_stream)
+        (ctx, c_ctx, new_stream_handle)
     }
 
     fn recv_data(&mut self, id: stream::Id, data: &[u8], event: picoquic_call_back_event_t) {
-        let new_stream = match self.streams.entry(id) {
+        let new_stream_handle = match self.streams.entry(id) {
             Occupied(mut entry) => {
                 entry.get_mut().recv_data(data, event);
                 None
@@ -174,7 +179,7 @@ impl Context {
             }
         };
 
-        if let Some(stream) = new_stream {
+        if let Some(stream) = new_stream_handle {
             if self.send_msg
                 .unbounded_send(Message::NewStream(stream))
                 .is_err()
@@ -278,21 +283,24 @@ unsafe extern "C" fn recv_data_callback(
     }
 }
 
+/// A handle to create new `Stream`s for a connection. 
 #[derive(Clone)]
-pub struct NewStream {
+pub struct NewStreamHandle {
     send: UnboundedSender<(stream::Type, oneshot::Sender<Stream>)>,
 }
 
-impl NewStream {
+impl NewStreamHandle {
+    /// Creates a new bidirectional `Stream`.
     pub fn new_bidirectional_stream(&mut self) -> NewStreamFuture {
-        self.new_stream(stream::Type::Bidirectional)
+        self.new_stream_handle(stream::Type::Bidirectional)
     }
 
+    /// Creates a new unidirectional `Stream`.
     pub fn new_unidirectional_stream(&mut self) -> NewStreamFuture {
-        self.new_stream(stream::Type::Unidirectional)
+        self.new_stream_handle(stream::Type::Unidirectional)
     }
 
-    fn new_stream(&mut self, stype: stream::Type) -> NewStreamFuture {
+    fn new_stream_handle(&mut self, stype: stream::Type) -> NewStreamFuture {
         let (send, recv) = oneshot::channel();
 
         let _ = self.send.unbounded_send((stype, send));
@@ -301,6 +309,8 @@ impl NewStream {
     }
 }
 
+/// A future that resolves to a `Stream`.
+/// This future is created by the `NewStreamHandle`.
 pub struct NewStreamFuture {
     recv: oneshot::Receiver<Stream>,
 }

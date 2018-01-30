@@ -47,7 +47,7 @@ impl ContextInner {
         listen_address: &SocketAddr,
         handle: &Handle,
         config: Config,
-    ) -> Result<(ContextInner, UnboundedReceiver<Connection>, Connect), Error> {
+    ) -> Result<(ContextInner, UnboundedReceiver<Connection>, NewConnectionHandle), Error> {
         let (send, recv) = unbounded();
         let (context, c_ctx) = CContext::new(send);
 
@@ -59,7 +59,7 @@ impl ContextInner {
         )?;
 
         let (send_connect, recv_connect) = unbounded();
-        let connect = Connect { send: send_connect };
+        let connect = NewConnectionHandle { send: send_connect };
 
         Ok((
             ContextInner {
@@ -273,25 +273,25 @@ unsafe extern "C" fn new_connection_callback(
 }
 
 #[derive(Clone)]
-pub struct Connect {
+pub struct NewConnectionHandle {
     send: UnboundedSender<(SocketAddr, oneshot::Sender<Connection>)>,
 }
 
-impl Connect {
-    pub fn connect_to(&mut self, addr: SocketAddr) -> ConnectFuture {
+impl NewConnectionHandle {
+    pub fn connect_to(&mut self, addr: SocketAddr) -> NewConnectionFuture {
         let (sender, recv) = oneshot::channel();
 
         let _ = self.send.unbounded_send((addr, sender));
 
-        ConnectFuture { recv }
+        NewConnectionFuture { recv }
     }
 }
 
-pub struct ConnectFuture {
+pub struct NewConnectionFuture {
     recv: oneshot::Receiver<Connection>,
 }
 
-impl Future for ConnectFuture {
+impl Future for NewConnectionFuture {
     type Item = Connection;
     type Error = Error;
 

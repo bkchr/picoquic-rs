@@ -1,19 +1,19 @@
 use error::*;
 use connection::Connection;
 use config::Config;
-use context_inner::{Connect, ConnectFuture, ContextInner };
+use context_inner::{ContextInner, NewConnectionFuture, NewConnectionHandle};
 
 use std::net::SocketAddr;
 
 use tokio_core::reactor::Handle;
 
-use futures::sync::mpsc::{UnboundedReceiver};
+use futures::sync::mpsc::UnboundedReceiver;
 use futures::{Poll, Stream};
 
 pub struct Context {
     recv_con: UnboundedReceiver<Connection>,
     local_addr: SocketAddr,
-    connect: Connect,
+    new_connection_handle: NewConnectionHandle,
 }
 
 impl Context {
@@ -22,7 +22,8 @@ impl Context {
         handle: &Handle,
         config: Config,
     ) -> Result<Context, Error> {
-        let (inner, recv_con, connect) = ContextInner::new(listen_address, handle, config)?;
+        let (inner, recv_con, new_connection_handle) =
+            ContextInner::new(listen_address, handle, config)?;
 
         let local_addr = inner.local_addr();
 
@@ -32,7 +33,7 @@ impl Context {
         Ok(Context {
             recv_con,
             local_addr,
-            connect,
+            new_connection_handle,
         })
     }
 
@@ -40,12 +41,12 @@ impl Context {
         self.local_addr
     }
 
-    pub fn connect_to(&mut self, addr: SocketAddr) -> ConnectFuture {
-        self.connect.connect_to(addr)
+    pub fn connect_to(&mut self, addr: SocketAddr) -> NewConnectionFuture {
+        self.new_connection_handle.connect_to(addr)
     }
 
-    pub fn get_connect(&self) -> Connect {
-        self.connect.clone()
+    pub fn get_new_connection_handle(&self) -> NewConnectionHandle {
+        self.new_connection_handle.clone()
     }
 }
 
