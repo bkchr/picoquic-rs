@@ -85,7 +85,7 @@ impl QuicCtx {
         let addr_to = SockAddr::from(addr_to);
         let addr_from = SockAddr::from(addr_from);
 
-        unsafe {
+        let ret = unsafe {
             picoquic_incoming_packet(
                 self.quic,
                 buf.as_mut_ptr(),
@@ -95,7 +95,11 @@ impl QuicCtx {
                 // as long as we only support one udp socket, we don't need to change this index
                 0,
                 current_time,
-            );
+            )
+        };
+
+        if ret != 0 {
+            error!("`picoquic_incoming_packet` returned: {}", ret);
         }
     }
 

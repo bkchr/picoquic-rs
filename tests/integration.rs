@@ -72,7 +72,7 @@ fn client_connects_creates_stream_and_sends_data() {
 
     let addr = start_server_thread(move |c| {
         c.for_each(move |_| {
-            let _ = send.clone().send(true);
+            let _ = send.clone().unbounded_send(true);
             Ok(())
         })
     });
@@ -80,14 +80,13 @@ fn client_connects_creates_stream_and_sends_data() {
     let (mut context, mut evt_loop) = create_context_and_evt_loop();
 
     let mut con = evt_loop
-        .run(context.connect_to(addr))
+        .run(context.connect_to(([127, 0, 0, 1], addr.port()).into()))
         .expect("creates connection");
 
     let stream = evt_loop
         .run(con.new_bidirectional_stream())
         .expect("creates stream");
 
-    eprintln!("WAIT");
     evt_loop
         .run(stream.send(SMessage::Data(Bytes::from("hello server"))))
         .unwrap();
