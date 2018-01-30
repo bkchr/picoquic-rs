@@ -1,4 +1,4 @@
-use error::Error;
+use error::*;
 use super::packet::Packet;
 use super::quic_ctx::{socket_addr_from_c, QuicCtx};
 use stream;
@@ -14,17 +14,25 @@ use std::ptr;
 
 use socket2::SockAddr;
 
+#[derive(Copy, Clone)]
 pub struct Connection {
     cnx: *mut picoquic_cnx_t,
 }
 
 impl Connection {
-    pub fn new(quic: &QuicCtx, server_addr: SocketAddr, current_time: u64) -> *mut picoquic_cnx_t {
-        assert!(!server_addr.ip().is_unspecified(), "server address must not be unspecified!");
+    pub fn new(
+        quic: &QuicCtx,
+        server_addr: SocketAddr,
+        current_time: u64,
+    ) -> Result<Connection, Error> {
+        assert!(
+            !server_addr.ip().is_unspecified(),
+            "server address must not be unspecified!"
+        );
 
         let server_addr = SockAddr::from(server_addr);
 
-        unsafe {
+        let cnx = unsafe {
             picoquic_create_cnx(
                 quic.as_ptr(),
                 0,
@@ -35,7 +43,13 @@ impl Connection {
                 ptr::null_mut(),
                 1,
             )
+        };
+
+        if cnx.is_null() {
+            Err(ErrorKind::Unknown)?;
         }
+
+        Ok(Connection { cnx })
     }
 
     pub fn as_ptr(&self) -> *mut picoquic_cnx_t {
@@ -228,6 +242,6 @@ mod tests {
     #[test]
     #[should_panic(expected = "server address must not be unspecified!")]
     fn do_not_accept_unspecified_ip_address() {
-        Connection::new(&QuicCtx::dummy(), ([0,0,0,0], 12345).into(), 0);
+        let _ = Connection::new(&QuicCtx::dummy(), ([0, 0, 0, 0], 12345).into(), 0);
     }
 }

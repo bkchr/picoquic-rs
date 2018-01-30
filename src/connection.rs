@@ -53,21 +53,14 @@ impl Connection {
         len: usize,
         event: picoquic_call_back_event_t,
     ) -> (Connection, Rc<RefCell<Context>>) {
-        let (sender, msg_recv) = unbounded();
+        let cnx = ffi::Connection::from(cnx);
+        let peer_addr = cnx.get_peer_addr();
 
-        let peer_addr = ffi::Connection::from(cnx).get_peer_addr();
-
-        let (ctx, c_ctx, new_stream) = Context::new(cnx, sender, false);
-
-        let con = Connection {
-            msg_recv,
-            peer_addr,
-            new_stream,
-        };
+        let (con, ctx, c_ctx) = Self::create(cnx, peer_addr, false);
 
         // Now we need to call the callback once manually to process the received data
         unsafe {
-            recv_data_callback(cnx, stream_id, data, len, event, c_ctx);
+            recv_data_callback(cnx.as_ptr(), stream_id, data, len, event, c_ctx);
         }
 
         (con, ctx)
@@ -78,15 +71,21 @@ impl Connection {
         peer_addr: SocketAddr,
         current_time: u64,
     ) -> Result<(Connection, Rc<RefCell<Context>>), Error> {
-        let cnx = ffi::Connection::new(quic, peer_addr, current_time);
+        let cnx = ffi::Connection::new(quic, peer_addr, current_time)?;
 
-        if cnx.is_null() {
-            return Err(ErrorKind::Unknown.into());
-        }
+        let (con, ctx, _) = Self::create(cnx, peer_addr, true);
 
+        Ok((con, ctx))
+    }
+
+    fn create(
+        cnx: ffi::Connection,
+        peer_addr: SocketAddr,
+        is_client: bool,
+    ) -> (Connection, Rc<RefCell<Context>>, *mut c_void) {
         let (sender, msg_recv) = unbounded();
 
-        let (ctx, _, new_stream) = Context::new(cnx, sender, true);
+        let (ctx, c_ctx, new_stream) = Context::new(cnx, sender, is_client);
 
         let con = Connection {
             msg_recv,
@@ -94,7 +93,7 @@ impl Connection {
             new_stream,
         };
 
-        Ok((con, ctx))
+        (con, ctx, c_ctx)
     }
 
     pub fn new_bidirectional_stream(&mut self) -> NewStreamFuture {
@@ -125,7 +124,7 @@ pub(crate) struct Context {
 
 impl Context {
     fn new(
-        cnx: *mut picoquic_cnx_t,
+        cnx: ffi::Connection,
         send_msg: UnboundedSender<Message>,
         is_client: bool,
     ) -> (Rc<RefCell<Context>>, *mut c_void, NewStream) {
@@ -138,7 +137,7 @@ impl Context {
         let mut ctx = Rc::new(RefCell::new(Context {
             send_msg,
             streams: Default::default(),
-            cnx: ffi::Connection::from(cnx),
+            cnx,
             closed: false,
             recv_create_stream,
             is_client,
@@ -150,7 +149,7 @@ impl Context {
         // `recv_data_callback`
         let c_ctx = unsafe {
             let c_ctx = Rc::into_raw(ctx.clone()) as *mut c_void;
-            picoquic_set_callback(cnx, Some(recv_data_callback), c_ctx);
+            picoquic_set_callback(cnx.as_ptr(), Some(recv_data_callback), c_ctx);
             c_ctx
         };
 
