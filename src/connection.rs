@@ -119,8 +119,8 @@ pub(crate) struct Context {
     /// Is the connection initiated by us?
     is_client: bool,
     next_stream_id: u64,
-    is_initiated: bool,
-    waiting_streams: Vec<(Stream, oneshot::Sender<Stream>)>,
+    /// Stores requested `Streams` until the connection is ready to process data. (state == ready)
+    wait_for_ready_state: Option<Vec<(Stream, oneshot::Sender<Stream>)>>,
 }
 
 impl Context {
@@ -143,8 +143,7 @@ impl Context {
             recv_create_stream,
             is_client,
             next_stream_id: 0,
-            is_initiated: false,
-            waiting_streams: Vec::new(),
+            wait_for_ready_state: Some(Vec::new()),
         }));
 
         // Convert the `Context` to a `*mut c_void` and reset the callback to the
@@ -200,11 +199,12 @@ impl Context {
                     let (stream, ctx) = Stream::new(id, self.cnx.as_ptr());
                     assert!(self.streams.insert(id, ctx).is_none());
 
-                    if self.is_initiated {
-                        let _ = sender.send(stream);
-                    } else {
-                        self.waiting_streams.push((stream, sender));
-                    }
+                    match self.wait_for_ready_state {
+                        Some(ref mut wait) => wait.push((stream, sender)),
+                        None => {
+                            let _ = sender.send(stream);
+                        }
+                    };
                 }
             }
         }
@@ -216,15 +216,13 @@ impl Context {
         let _ = self.send_msg.unbounded_send(Message::Close);
     }
 
-    fn initiate(&mut self) {
-        if self.is_initiated || !self.cnx.is_ready() {
-            return;
-        }
-
-        self.waiting_streams.drain(..).for_each(|(stream, sender)| {
-            let _ = sender.send(stream);
-        });
-        self.is_initiated = true;
+    fn process_wait_for_ready_state(&mut self) {
+        match self.wait_for_ready_state.take() {
+            Some(wait) => wait.into_iter().for_each(|(stream, sender)| {
+                let _ = sender.send(stream);
+            }),
+            None => panic!("connection can only switches once into `ready` state!"),
+        };
     }
 }
 
@@ -237,7 +235,9 @@ impl Future for Context {
             return Ok(Ready(()));
         }
 
-        self.initiate();
+        if self.wait_for_ready_state.is_some() && self.cnx.is_ready() {
+            self.process_wait_for_ready_state();
+        }
 
         self.streams
             .retain(|_, s| s.poll().map(|r| r.is_not_ready()).unwrap_or(false));
