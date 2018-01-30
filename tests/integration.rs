@@ -117,3 +117,54 @@ fn client_connects_creates_stream_and_sends_data() {
         evt_loop.run(recv.into_future()).unwrap().0.unwrap()
     );
 }
+
+#[test]
+fn connection_and_stream_closes_on_drop() {
+    let send_data = "hello server";
+    let (send, recv) = unbounded();
+
+    let addr = start_server_thread(move |c, _| {
+        c.for_each(move |c| {
+            let send = send.clone();
+            c.into_future()
+                .map(move |(_, _)| {
+                    let _ = send.clone().unbounded_send(true);
+                })
+                .map_err(|(e, _)| e)
+        })
+    });
+
+    let (mut context, mut evt_loop) = create_context_and_evt_loop();
+
+    let mut con = evt_loop
+        .run(context.connect_to(([127, 0, 0, 1], addr.port()).into()))
+        .expect("creates connection");
+
+    let stream = evt_loop
+        .run(con.new_bidirectional_stream())
+        .expect("creates stream");
+
+    let stream = evt_loop
+        .run(stream.send(SMessage::Data(Bytes::from(send_data))))
+        .unwrap();
+
+    assert!(evt_loop.run(recv.into_future()).unwrap().0.unwrap());
+
+    assert!(match evt_loop
+        .run(stream.into_future().map(|(m, _)| m).map_err(|(e, _)| e))
+        .unwrap()
+        .unwrap()
+    {
+        SMessage::Close => true,
+        _ => false,
+    });
+
+    assert!(match evt_loop
+        .run(con.into_future().map(|(m, _)| m).map_err(|(e, _)| e))
+        .unwrap()
+        .unwrap()
+    {
+        CMessage::Close => true,
+        _ => false,
+    });
+}

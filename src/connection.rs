@@ -19,6 +19,7 @@ use std::cell::RefCell;
 use std::slice;
 use std::net::SocketAddr;
 
+#[derive(Debug)]
 pub enum Message {
     NewStream(Stream),
     Close,
@@ -223,7 +224,7 @@ impl Context {
     fn process_wait_for_ready_state(&mut self) {
         match self.wait_for_ready_state.take() {
             Some(wait) => wait.into_iter().for_each(|(stream, sender)| {
-                let _ = sender.send(stream);
+                sender.send(stream).unwrap();
             }),
             None => panic!("connection can only switches once into `ready` state!"),
         };
@@ -270,9 +271,8 @@ unsafe extern "C" fn recv_data_callback(
     if event == picoquic::picoquic_call_back_event_t_picoquic_callback_close
         || event == picoquic::picoquic_call_back_event_t_picoquic_callback_application_close
     {
+        // when Rc goes out of scope, it will dereference the Context pointer automatically
         ctx.borrow_mut().close();
-
-    // when Rc goes out of scope, it will dereference the Context pointer automatically
     } else {
         let data = slice::from_raw_parts(bytes, length as usize);
 

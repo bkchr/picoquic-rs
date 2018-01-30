@@ -10,6 +10,7 @@ use futures::sync::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
 
 pub type Id = u64;
 
+#[derive(Debug)]
 pub enum Message {
     Close,
     Data(Bytes),
@@ -20,6 +21,7 @@ pub(crate) enum Type {
     Bidirectional,
 }
 
+#[derive(Debug)]
 pub struct Stream {
     recv_msg: UnboundedReceiver<Message>,
     send_msg: UnboundedSender<Message>,
