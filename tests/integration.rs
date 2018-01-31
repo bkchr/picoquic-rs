@@ -168,3 +168,68 @@ fn connection_and_stream_closes_on_drop() {
         _ => false,
     });
 }
+
+#[test]
+fn open_multiple_streams_sends_data_and_recvs() {
+    let send_data = "hello server";
+    let expected_stream_count = 4;
+
+    let addr = start_server_thread(move |c, h| {
+        c.for_each(move |c| {
+            let h = h.clone();
+
+            c.for_each(move |s| {
+                let h = h.clone();
+
+                let s = match s {
+                    CMessage::NewStream(s) => s,
+                    CMessage::Close => return Ok(()),
+                };
+
+                h.spawn(
+                    s.into_future()
+                        .map_err(|_| ())
+                        .and_then(|(v, s)| s.send(v.unwrap()).map_err(|_| ()))
+                        // we need to do a fake collect here, to prevent that the stream gets
+                        // dropped to early.
+                        .and_then(|s| s.collect().map_err(|_| ()))
+                        .map(|_| ()),
+                );
+                Ok(())
+            })
+        })
+    });
+
+    let (mut context, mut evt_loop) = create_context_and_evt_loop();
+
+    let mut con = evt_loop
+        .run(context.connect_to(([127, 0, 0, 1], addr.port()).into()))
+        .expect("creates connection");
+
+    let mut streams = Vec::new();
+
+    for i in 0..expected_stream_count {
+        let stream = evt_loop
+            .run(con.new_bidirectional_stream())
+            .expect("creates stream");
+        streams.push(
+            evt_loop
+                .run(stream.send(SMessage::Data(Bytes::from(format!("{}{}", send_data, i)))))
+                .unwrap(),
+        );
+    }
+
+    for (i, stream) in streams.iter_mut().enumerate() {
+        assert_eq!(
+            format!("{}{}", send_data, i),
+            match evt_loop
+                .run(stream.into_future().map(|(m, _)| m).map_err(|(e, _)| e))
+                .unwrap()
+                .unwrap()
+            {
+                SMessage::Data(data) => String::from_utf8(data.to_vec()).unwrap(),
+                _ => "no data received".to_owned(),
+            }
+        );
+    }
+}
