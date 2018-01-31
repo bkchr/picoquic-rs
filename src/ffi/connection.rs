@@ -7,7 +7,8 @@ use picoquic_sys::picoquic::{self, picoquic_close, picoquic_cnx_t, picoquic_crea
                              picoquic_delete_cnx, picoquic_get_cnx_state, picoquic_get_first_cnx,
                              picoquic_get_next_cnx, picoquic_get_peer_addr, picoquic_quic_t,
                              picoquic_state_enum_picoquic_state_client_ready,
-                             picoquic_state_enum_picoquic_state_disconnected};
+                             picoquic_state_enum_picoquic_state_disconnected,
+                             picoquic_state_enum_picoquic_state_server_ready};
 
 use std::net::SocketAddr;
 use std::ptr;
@@ -102,7 +103,9 @@ impl Connection {
 
     /// Is the connection ready to be used?
     pub fn is_ready(&self) -> bool {
-        self.get_state() == picoquic_state_enum_picoquic_state_client_ready
+        let state = self.get_state();
+        state == picoquic_state_enum_picoquic_state_client_ready
+            || state == picoquic_state_enum_picoquic_state_server_ready
     }
 
     fn get_state(&self) -> u32 {

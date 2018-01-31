@@ -10,7 +10,7 @@ use std::os::raw::c_void;
 use std::ffi::CString;
 use std::ptr;
 use std::net::SocketAddr;
-use std::time::{Duration, Instant };
+use std::time::{Duration, Instant};
 
 use socket2::SockAddr;
 
@@ -76,7 +76,7 @@ impl QuicCtx {
         QuicCtx {
             quic: ptr::null_mut(),
             max_delay: Duration::from_secs(10),
-            clock: Instant::now()
+            clock: Instant::now(),
         }
     }
 
@@ -188,9 +188,15 @@ mod tests {
 
     #[test]
     fn from_micro_seconds() {
-        assert_eq!(Duration::from_secs(1), Duration::from_micro_seconds(1_000_000));
+        assert_eq!(
+            Duration::from_secs(1),
+            Duration::from_micro_seconds(1_000_000)
+        );
         assert_eq!(Duration::new(0, 1000), Duration::from_micro_seconds(1));
-        assert_eq!(Duration::new(1, 5000), Duration::from_micro_seconds(1_000_005));
+        assert_eq!(
+            Duration::new(1, 5000),
+            Duration::from_micro_seconds(1_000_005)
+        );
         assert_eq!(Duration::new(0, 500000), Duration::from_micro_seconds(500));
     }
 

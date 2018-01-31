@@ -3,12 +3,13 @@ extern crate futures;
 extern crate picoquic;
 extern crate tokio_core;
 
-use picoquic::{CMessage, Config, Context, SMessage};
+use picoquic::{CMessage, Config, Connection, Context, NewStreamFuture, NewStreamHandle, SMessage};
 
 use std::net::SocketAddr;
 use std::thread;
 use std::sync::mpsc::channel;
 use std::fmt;
+use std::sync::Arc;
 
 use futures::{Future, Sink, Stream as FStream};
 use futures::sync::mpsc::unbounded;
@@ -67,8 +68,10 @@ fn server_start() {
     start_server_thread(|c, _| c.for_each(|_| Ok(())));
 }
 
-#[test]
-fn client_connects_creates_stream_and_sends_data() {
+fn client_connects_creates_stream_and_sends_data<F>(create_stream: F)
+where
+    F: Fn(Connection) -> NewStreamFuture,
+{
     let send_data = "hello server";
     let (send, recv) = unbounded();
 
@@ -99,13 +102,11 @@ fn client_connects_creates_stream_and_sends_data() {
 
     let (mut context, mut evt_loop) = create_context_and_evt_loop();
 
-    let mut con = evt_loop
+    let con = evt_loop
         .run(context.connect_to(([127, 0, 0, 1], addr.port()).into()))
         .expect("creates connection");
 
-    let stream = evt_loop
-        .run(con.new_bidirectional_stream())
-        .expect("creates stream");
+    let stream = evt_loop.run(create_stream(con)).expect("creates stream");
 
     // The stream must not be dropped here!
     let _stream = evt_loop
@@ -116,6 +117,16 @@ fn client_connects_creates_stream_and_sends_data() {
         send_data,
         evt_loop.run(recv.into_future()).unwrap().0.unwrap()
     );
+}
+
+#[test]
+fn client_connects_creates_bidirectional_stream_and_sends_data() {
+    client_connects_creates_stream_and_sends_data(|mut c| c.new_bidirectional_stream())
+}
+
+#[test]
+fn client_connects_creates_unidirectional_stream_and_sends_data() {
+    client_connects_creates_stream_and_sends_data(|mut c| c.new_unidirectional_stream())
 }
 
 #[test]
@@ -232,4 +243,97 @@ fn open_multiple_streams_sends_data_and_recvs() {
             }
         );
     }
+}
+
+fn open_stream_to_server_and_server_creates_new_stream_to_answer<F>(create_stream: F)
+where
+    F: 'static + Sync + Send + Fn(NewStreamHandle) -> NewStreamFuture,
+{
+    let create_stream = Arc::new(Box::new(create_stream));
+    let send_data = "hello server";
+
+    let create_stream2 = create_stream.clone();
+    let addr = start_server_thread(move |c, h| {
+        let create_stream = create_stream2;
+        c.for_each(move |c| {
+            let create_stream = create_stream.clone();
+            let new_stream = c.get_new_stream_handle();
+            let h = h.clone();
+
+            c.for_each(move |s| {
+                let h = h.clone();
+                let create_stream = create_stream.clone();
+                let new_stream = new_stream.clone();
+
+                let s = match s {
+                    CMessage::NewStream(s) => s,
+                    CMessage::Close => return Ok(()),
+                };
+
+                h.spawn(
+                    s.into_future()
+                        .map_err(|_| ())
+                        .and_then(move |(v, _)|
+                                  create_stream(new_stream.clone())
+                                  .map_err(|_| ())
+                                  .and_then(move |s| s.send(v.unwrap()).map_err(|_| ())))
+                        // we need to do a fake collect here, to prevent that the stream gets
+                        // dropped to early.
+                        .and_then(|s| s.collect().map_err(|_| ()))
+                        .map(|_| ()),
+                );
+                Ok(())
+            })
+        })
+    });
+
+    let (mut context, mut evt_loop) = create_context_and_evt_loop();
+
+    let con = evt_loop
+        .run(context.connect_to(([127, 0, 0, 1], addr.port()).into()))
+        .expect("creates connection");
+
+    let stream = evt_loop
+        .run(create_stream(con.get_new_stream_handle()))
+        .expect("creates stream");
+    let _stream = evt_loop
+        .run(stream.send(SMessage::Data(Bytes::from(send_data))))
+        .unwrap();
+
+    let new_stream = evt_loop
+        .run(
+            con.into_future()
+                .map(|(m, _)| match m.unwrap() {
+                    CMessage::NewStream(s) => s,
+                    _ => panic!("expected new stream"),
+                })
+                .map_err(|(e, _)| e),
+        )
+        .unwrap();
+
+    assert_eq!(
+        send_data,
+        match evt_loop
+            .run(new_stream.into_future().map(|(m, _)| m).map_err(|(e, _)| e))
+            .unwrap()
+            .unwrap()
+        {
+            SMessage::Data(data) => String::from_utf8(data.to_vec()).unwrap(),
+            _ => "no data received".to_owned(),
+        }
+    );
+}
+
+#[test]
+fn open_uni_stream_to_server_and_server_creates_new_uni_stream_to_answer() {
+    open_stream_to_server_and_server_creates_new_stream_to_answer(|mut h| {
+        h.new_unidirectional_stream()
+    });
+}
+
+#[test]
+fn open_bi_stream_to_server_and_server_creates_new_bi_stream_to_answer() {
+    open_stream_to_server_and_server_creates_new_stream_to_answer(|mut h| {
+        h.new_bidirectional_stream()
+    });
 }

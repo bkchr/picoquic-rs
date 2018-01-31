@@ -283,7 +283,7 @@ unsafe extern "C" fn recv_data_callback(
     }
 }
 
-/// A handle to create new `Stream`s for a connection. 
+/// A handle to create new `Stream`s for a connection.
 #[derive(Clone)]
 pub struct NewStreamHandle {
     send: UnboundedSender<(stream::Type, oneshot::Sender<Stream>)>,

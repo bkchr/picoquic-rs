@@ -21,6 +21,7 @@ mod config;
 mod ffi;
 
 pub use self::context::Context;
-pub use self::connection::{Connection, Message as CMessage};
+pub use self::context_inner::{NewConnectionFuture, NewConnectionHandle};
+pub use self::connection::{Connection, Message as CMessage, NewStreamFuture, NewStreamHandle};
 pub use self::stream::{Message as SMessage, Stream};
 pub use self::config::Config;
