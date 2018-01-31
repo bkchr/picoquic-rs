@@ -16,7 +16,7 @@ pub enum Message {
     Data(Bytes),
 }
 
-pub(crate) enum Type {
+pub enum Type {
     Unidirectional,
     Bidirectional,
 }
@@ -25,20 +25,31 @@ pub(crate) enum Type {
 pub struct Stream {
     recv_msg: UnboundedReceiver<Message>,
     send_msg: UnboundedSender<Message>,
+    id: Id,
 }
 
 impl Stream {
-    pub(crate) fn new(id: Id, cnx: *mut picoquic_cnx_t) -> (Stream, Context) {
+    pub(crate) fn new(id: Id, cnx: *mut picoquic_cnx_t, is_client_con: bool) -> (Stream, Context) {
         let (recv_msg, recv_send) = unbounded();
         let (send_msg, send_recv) = unbounded();
 
-        let ctx = Context::new(recv_msg, send_recv, id, cnx);
+        let ctx = Context::new(recv_msg, send_recv, id, cnx, is_client_con);
         let stream = Stream {
             recv_msg: recv_send,
             send_msg: send_msg,
+            id,
         };
 
         (stream, ctx)
+    }
+
+    /// Returns the type of this `Stream`, either `Type::Unidirectional` or `Type::Bidirectional`.
+    pub fn get_type(&self) -> Type {
+        if is_unidirectional(self.id) {
+            Type::Unidirectional
+        } else {
+            Type::Bidirectional
+        }
     }
 }
 
@@ -70,6 +81,8 @@ pub(crate) struct Context {
     id: Id,
     finished: bool,
     cnx: *mut picoquic_cnx_t,
+    /// Is the connection this Stream belongs to, a client connection?
+    is_client_con: bool,
 }
 
 impl Context {
@@ -78,6 +91,7 @@ impl Context {
         mut send_msg: UnboundedReceiver<Message>,
         id: Id,
         cnx: *mut picoquic_cnx_t,
+        is_client_con: bool,
     ) -> Context {
         // We need to poll this once, so the current `Task` is registered to be woken up, when
         // new data should be send.
@@ -89,6 +103,7 @@ impl Context {
             id,
             finished: false,
             cnx,
+            is_client_con
         }
     }
 
@@ -115,12 +130,35 @@ impl Context {
     }
 
     fn send_data(&mut self, data: Bytes) {
-        //TODO: `set_fin`(last argument) should be configurable
-        unsafe {
-            // TODO handle the result
-            picoquic_add_to_stream(self.cnx, self.id, data.as_ptr(), data.len(), 0);
+        if is_unidirectional(self.id) && !self.is_unidirectional_send_allowed() {
+            //TODO: maybe we should do more than just printing
+            error!("tried to send data to incoming unidirectional stream!");
+        } else {
+            //TODO: `set_fin`(last argument) should be configurable
+            unsafe {
+                // TODO handle the result
+                picoquic_add_to_stream(self.cnx, self.id, data.as_ptr(), data.len(), 0);
+            }
         }
     }
+
+    /// Returns if this Stream is the sending side of an unidirectional Stream.
+    fn is_unidirectional_send_allowed(&self) -> bool {
+        if self.is_client_initiated() {
+            self.is_client_con
+        } else {
+            !self.is_client_con
+        }
+    }
+
+    /// Is the Stream initiated by the client?
+    fn is_client_initiated(&self) -> bool {
+        self.id & 1 == 0
+    }
+}
+
+fn is_unidirectional(id: Id) -> bool {
+    id & 2 != 0
 }
 
 impl Future for Context {

@@ -41,8 +41,8 @@ impl Context {
         self.local_addr
     }
 
-    pub fn connect_to(&mut self, addr: SocketAddr) -> NewConnectionFuture {
-        self.new_connection_handle.connect_to(addr)
+    pub fn new_connection(&mut self, addr: SocketAddr) -> NewConnectionFuture {
+        self.new_connection_handle.new_connection(addr)
     }
 
     pub fn get_new_connection_handle(&self) -> NewConnectionHandle {

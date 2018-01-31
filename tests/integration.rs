@@ -3,7 +3,7 @@ extern crate futures;
 extern crate picoquic;
 extern crate tokio_core;
 
-use picoquic::{CMessage, Config, Connection, Context, NewStreamFuture, NewStreamHandle, SMessage};
+use picoquic::{CMessage, Config, Connection, Context, NewStreamFuture, NewStreamHandle, SMessage, Stream, SType};
 
 use std::net::SocketAddr;
 use std::thread;
@@ -68,9 +68,10 @@ fn server_start() {
     start_server_thread(|c, _| c.for_each(|_| Ok(())));
 }
 
-fn client_connects_creates_stream_and_sends_data<F>(create_stream: F)
+fn client_connects_creates_stream_and_sends_data<F, T>(create_stream: F, check_type: T)
 where
     F: Fn(Connection) -> NewStreamFuture,
+    T: Fn(&Stream),
 {
     let send_data = "hello server";
     let (send, recv) = unbounded();
@@ -103,10 +104,11 @@ where
     let (mut context, mut evt_loop) = create_context_and_evt_loop();
 
     let con = evt_loop
-        .run(context.connect_to(([127, 0, 0, 1], addr.port()).into()))
+        .run(context.new_connection(([127, 0, 0, 1], addr.port()).into()))
         .expect("creates connection");
 
     let stream = evt_loop.run(create_stream(con)).expect("creates stream");
+    check_type(&stream);
 
     // The stream must not be dropped here!
     let _stream = evt_loop
@@ -121,12 +123,28 @@ where
 
 #[test]
 fn client_connects_creates_bidirectional_stream_and_sends_data() {
-    client_connects_creates_stream_and_sends_data(|mut c| c.new_bidirectional_stream())
+    client_connects_creates_stream_and_sends_data(
+        |mut c| c.new_bidirectional_stream(),
+        |s| {
+            assert!(match s.get_type() {
+                SType::Bidirectional => true,
+                _ => false,
+            })
+        },
+    )
 }
 
 #[test]
 fn client_connects_creates_unidirectional_stream_and_sends_data() {
-    client_connects_creates_stream_and_sends_data(|mut c| c.new_unidirectional_stream())
+    client_connects_creates_stream_and_sends_data(
+        |mut c| c.new_unidirectional_stream(),
+        |s| {
+            assert!(match s.get_type() {
+                SType::Unidirectional => true,
+                _ => false,
+            })
+        },
+    )
 }
 
 #[test]
@@ -148,7 +166,7 @@ fn connection_and_stream_closes_on_drop() {
     let (mut context, mut evt_loop) = create_context_and_evt_loop();
 
     let mut con = evt_loop
-        .run(context.connect_to(([127, 0, 0, 1], addr.port()).into()))
+        .run(context.new_connection(([127, 0, 0, 1], addr.port()).into()))
         .expect("creates connection");
 
     let stream = evt_loop
@@ -214,7 +232,7 @@ fn open_multiple_streams_sends_data_and_recvs() {
     let (mut context, mut evt_loop) = create_context_and_evt_loop();
 
     let mut con = evt_loop
-        .run(context.connect_to(([127, 0, 0, 1], addr.port()).into()))
+        .run(context.new_connection(([127, 0, 0, 1], addr.port()).into()))
         .expect("creates connection");
 
     let mut streams = Vec::new();
@@ -290,7 +308,7 @@ where
     let (mut context, mut evt_loop) = create_context_and_evt_loop();
 
     let con = evt_loop
-        .run(context.connect_to(([127, 0, 0, 1], addr.port()).into()))
+        .run(context.new_connection(([127, 0, 0, 1], addr.port()).into()))
         .expect("creates connection");
 
     let stream = evt_loop

@@ -172,7 +172,7 @@ impl Context {
                 None
             }
             Vacant(entry) => {
-                let (stream, mut ctx) = Stream::new(id, self.cnx.as_ptr());
+                let (stream, mut ctx) = Stream::new(id, self.cnx.as_ptr(), self.is_client);
 
                 ctx.recv_data(data, event);
                 entry.insert(ctx);
@@ -201,7 +201,7 @@ impl Context {
                         ffi::Connection::get_stream_id(self.next_stream_id, self.is_client, stype);
                     self.next_stream_id += 1;
 
-                    let (stream, ctx) = Stream::new(id, self.cnx.as_ptr());
+                    let (stream, ctx) = Stream::new(id, self.cnx.as_ptr(), self.is_client);
                     assert!(self.streams.insert(id, ctx).is_none());
 
                     match self.wait_for_ready_state {

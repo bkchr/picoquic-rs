@@ -295,7 +295,7 @@ pub struct NewConnectionHandle {
 }
 
 impl NewConnectionHandle {
-    pub fn connect_to(&mut self, addr: SocketAddr) -> NewConnectionFuture {
+    pub fn new_connection(&mut self, addr: SocketAddr) -> NewConnectionFuture {
         let (sender, recv) = oneshot::channel();
 
         let _ = self.send.unbounded_send((addr, sender));
