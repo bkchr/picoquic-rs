@@ -119,7 +119,14 @@ impl Connection {
         }
     }
 
-    pub(crate) fn get_stream_id(next_id: u64, is_client: bool, stype: stream::Type) -> u64 {
+    /// Generates a new `Stream` id from the given `next_id`. The `next_id` can be incremented by
+    /// one, after calling this function. The resulting `Stream` id depends on `is_client` and
+    /// `stype`, as both values are encoded in the first two bits of the new id.
+    pub(crate) fn generate_stream_id(
+        next_id: u64,
+        is_client: bool,
+        stype: stream::Type,
+    ) -> stream::Id {
         // Stream 0, 1, 2 and 3 are reserved.
         // Client first usable stream is 4, Server first usable stream is 5.
         // Client gets even stream ids and server gets odd stream ids.
@@ -182,15 +189,15 @@ mod tests {
     fn client_bidirectional_stream_id_generation() {
         assert_eq!(
             4,
-            Connection::get_stream_id(0, true, stream::Type::Bidirectional)
+            Connection::generate_stream_id(0, true, stream::Type::Bidirectional)
         );
         assert_eq!(
             8,
-            Connection::get_stream_id(1, true, stream::Type::Bidirectional)
+            Connection::generate_stream_id(1, true, stream::Type::Bidirectional)
         );
         assert_eq!(
             12,
-            Connection::get_stream_id(2, true, stream::Type::Bidirectional)
+            Connection::generate_stream_id(2, true, stream::Type::Bidirectional)
         );
     }
 
@@ -198,15 +205,15 @@ mod tests {
     fn client_unidirectional_stream_id_generation() {
         assert_eq!(
             6,
-            Connection::get_stream_id(0, true, stream::Type::Unidirectional)
+            Connection::generate_stream_id(0, true, stream::Type::Unidirectional)
         );
         assert_eq!(
             10,
-            Connection::get_stream_id(1, true, stream::Type::Unidirectional)
+            Connection::generate_stream_id(1, true, stream::Type::Unidirectional)
         );
         assert_eq!(
             14,
-            Connection::get_stream_id(2, true, stream::Type::Unidirectional)
+            Connection::generate_stream_id(2, true, stream::Type::Unidirectional)
         );
     }
 
@@ -214,15 +221,15 @@ mod tests {
     fn server_bidirectional_stream_id_generation() {
         assert_eq!(
             5,
-            Connection::get_stream_id(0, false, stream::Type::Bidirectional)
+            Connection::generate_stream_id(0, false, stream::Type::Bidirectional)
         );
         assert_eq!(
             9,
-            Connection::get_stream_id(1, false, stream::Type::Bidirectional)
+            Connection::generate_stream_id(1, false, stream::Type::Bidirectional)
         );
         assert_eq!(
             13,
-            Connection::get_stream_id(2, false, stream::Type::Bidirectional)
+            Connection::generate_stream_id(2, false, stream::Type::Bidirectional)
         );
     }
 
@@ -230,15 +237,15 @@ mod tests {
     fn server_unidirectional_stream_id_generation() {
         assert_eq!(
             7,
-            Connection::get_stream_id(0, false, stream::Type::Unidirectional)
+            Connection::generate_stream_id(0, false, stream::Type::Unidirectional)
         );
         assert_eq!(
             11,
-            Connection::get_stream_id(1, false, stream::Type::Unidirectional)
+            Connection::generate_stream_id(1, false, stream::Type::Unidirectional)
         );
         assert_eq!(
             15,
-            Connection::get_stream_id(2, false, stream::Type::Unidirectional)
+            Connection::generate_stream_id(2, false, stream::Type::Unidirectional)
         );
     }
 

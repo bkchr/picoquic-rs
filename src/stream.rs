@@ -1,6 +1,7 @@
 use error::*;
 use picoquic_sys::picoquic::{self, picoquic_add_to_stream, picoquic_call_back_event_t,
-                             picoquic_cnx_t, picoquic_reset_stream};
+                             picoquic_reset_stream};
+use ffi;
 
 use bytes::Bytes;
 
@@ -10,17 +11,26 @@ use futures::sync::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
 
 pub type Id = u64;
 
+/// A `Message` is used by the `Stream` to propagate information from the peer or to send
+/// information to the peer.
 #[derive(Debug)]
 pub enum Message {
+    /// Close the `Stream`.
     Close,
+    /// Send data. 
     Data(Bytes),
 }
 
+/// A `Stream` can either be unidirectional or bidirectional.
 pub enum Type {
     Unidirectional,
     Bidirectional,
 }
 
+/// A `Stream` is part of a `Connection`. A `Connection` can consists of multiple `Stream`s.
+/// Each `Stream` is a new channel over the `Connection` to the Peer. All traffic of a `Stream`
+/// is always unique for each `Stream`.
+/// The `Stream` needs to be polled, to get notified about a new `Message`.
 #[derive(Debug)]
 pub struct Stream {
     recv_msg: UnboundedReceiver<Message>,
@@ -29,7 +39,7 @@ pub struct Stream {
 }
 
 impl Stream {
-    pub(crate) fn new(id: Id, cnx: *mut picoquic_cnx_t, is_client_con: bool) -> (Stream, Context) {
+    pub(crate) fn new(id: Id, cnx: ffi::Connection, is_client_con: bool) -> (Stream, Context) {
         let (recv_msg, recv_send) = unbounded();
         let (send_msg, send_recv) = unbounded();
 
@@ -80,7 +90,7 @@ pub(crate) struct Context {
     send_msg: UnboundedReceiver<Message>,
     id: Id,
     finished: bool,
-    cnx: *mut picoquic_cnx_t,
+    cnx: ffi::Connection,
     /// Is the connection this Stream belongs to, a client connection?
     is_client_con: bool,
 }
@@ -90,7 +100,7 @@ impl Context {
         recv_msg: UnboundedSender<Message>,
         mut send_msg: UnboundedReceiver<Message>,
         id: Id,
-        cnx: *mut picoquic_cnx_t,
+        cnx: ffi::Connection,
         is_client_con: bool,
     ) -> Context {
         // We need to poll this once, so the current `Task` is registered to be woken up, when
@@ -103,14 +113,14 @@ impl Context {
             id,
             finished: false,
             cnx,
-            is_client_con
+            is_client_con,
         }
     }
 
     fn reset(&mut self) {
         self.finished = true;
         unsafe {
-            picoquic_reset_stream(self.cnx, self.id, 0);
+            picoquic_reset_stream(self.cnx.as_ptr(), self.id, 0);
         }
     }
 
@@ -137,7 +147,7 @@ impl Context {
             //TODO: `set_fin`(last argument) should be configurable
             unsafe {
                 // TODO handle the result
-                picoquic_add_to_stream(self.cnx, self.id, data.as_ptr(), data.len(), 0);
+                picoquic_add_to_stream(self.cnx.as_ptr(), self.id, data.as_ptr(), data.len(), 0);
             }
         }
     }

@@ -25,6 +25,7 @@ pub enum Message {
     Close,
 }
 
+/// Represents a connection to a peer.
 pub struct Connection {
     msg_recv: UnboundedReceiver<Message>,
     peer_addr: SocketAddr,
@@ -172,7 +173,7 @@ impl Context {
                 None
             }
             Vacant(entry) => {
-                let (stream, mut ctx) = Stream::new(id, self.cnx.as_ptr(), self.is_client);
+                let (stream, mut ctx) = Stream::new(id, self.cnx, self.is_client);
 
                 ctx.recv_data(data, event);
                 entry.insert(ctx);
@@ -197,11 +198,14 @@ impl Context {
             match self.recv_create_stream.poll() {
                 Ok(Ready(None)) | Ok(NotReady) | Err(_) => break,
                 Ok(Ready(Some((stype, sender)))) => {
-                    let id =
-                        ffi::Connection::get_stream_id(self.next_stream_id, self.is_client, stype);
+                    let id = ffi::Connection::generate_stream_id(
+                        self.next_stream_id,
+                        self.is_client,
+                        stype,
+                    );
                     self.next_stream_id += 1;
 
-                    let (stream, ctx) = Stream::new(id, self.cnx.as_ptr(), self.is_client);
+                    let (stream, ctx) = Stream::new(id, self.cnx, self.is_client);
                     assert!(self.streams.insert(id, ctx).is_none());
 
                     match self.wait_for_ready_state {
