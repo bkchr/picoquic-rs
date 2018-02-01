@@ -1,0 +1,13 @@
+sudo: required
+
+language: rust
+
+services:
+  - docker
+
+before_install:
+- cat Dockerfile | docker build -t picoquic-rs -
+
+script:
+# We need to use 1 thread for the tests, because the calls to OpenSSL are not guarded.
+- docker run --rm --user "$(id -u)":"$(id -g)" -v "$PWD":/src -w /src picoquic-rs "cargo test --all -- --test-threads=1"
