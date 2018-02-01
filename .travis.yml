@@ -15,4 +15,4 @@ before_install:
 
 script:
 # We need to use 1 thread for the tests, because the calls to OpenSSL are not guarded.
-- docker run --rm --user "$(id -u)":"$(id -g)" -v "$PWD":/src -w /src picoquic-rs "cargo test --all -- --test-threads=1"
+- docker run --rm --user "$(id -u)":"$(id -g)" -v "$PWD":/src -w /src picoquic-rs cargo test --all -- --test-threads=1
