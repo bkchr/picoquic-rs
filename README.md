@@ -15,7 +15,6 @@ in [development](https://github.com/quicwg) and so the implementation.
 For building picoquic-rs, you need the following dependencies:
 * clang
 * openssl
-* cmake
 
 Building is currently only tested on Linux. To build the project, you just need to
 run `cargo build`.
