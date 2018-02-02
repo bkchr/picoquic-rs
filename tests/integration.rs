@@ -3,7 +3,8 @@ extern crate futures;
 extern crate picoquic;
 extern crate tokio_core;
 
-use picoquic::{CMessage, Config, Connection, Context, NewStreamFuture, NewStreamHandle, SMessage, Stream, SType};
+use picoquic::{CMessage, Config, Connection, Context, NewStreamFuture, NewStreamHandle, SMessage,
+               SType, Stream};
 
 use std::net::SocketAddr;
 use std::thread;
@@ -21,11 +22,10 @@ use bytes::Bytes;
 fn get_test_config() -> Config {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
 
-    Config {
-        cert_filename: format!("{}/tests/cert.pem", manifest_dir),
-        key_filename: format!("{}/tests/key.pem", manifest_dir),
-        reset_seed: None,
-    }
+    Config::server(
+        &format!("{}/tests/cert.pem", manifest_dir),
+        &format!("{}/tests/key.pem", manifest_dir),
+    )
 }
 
 fn create_context_and_evt_loop() -> (Context, Core) {

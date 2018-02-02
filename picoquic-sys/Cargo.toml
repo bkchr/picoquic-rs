@@ -3,6 +3,14 @@ name = "picoquic-sys"
 version = "0.1.0"
 authors = ["Bastian Köcher <git@kchr.de>"]
 build = "build.rs"
+license = "MIT/Apache-2.0"
+workspace = ".."
+categories = ["asynchronous", "network-programming"]
+repository = "https://github.com/bkchr/picoquic-rs"
+description = """
+Provides bindings to the `picoquic` c-library. Please don't use this crate directly.
+Use the `picoquic` crate.
+"""
 
 [dependencies]
 openssl-sys = "0.9"

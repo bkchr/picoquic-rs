@@ -17,7 +17,7 @@ pub type Id = u64;
 pub enum Message {
     /// Close the `Stream`.
     Close,
-    /// Send data. 
+    /// Send data.
     Data(Bytes),
 }
 

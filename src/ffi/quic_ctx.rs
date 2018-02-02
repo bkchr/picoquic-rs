@@ -24,7 +24,7 @@ pub struct QuicCtx {
 
 impl QuicCtx {
     pub fn new(
-        config: Config,
+        mut config: Config,
         default_ctx: *mut c_void,
         default_callback: picoquic_stream_data_cb_fn,
     ) -> Result<QuicCtx, Error> {
@@ -32,11 +32,26 @@ impl QuicCtx {
         // The buckets itself are a linked list
         let connection_buckets = 16;
 
-        let cert_filename = CString::new(config.cert_filename).context(ErrorKind::CStringError)?;
-        let key_filename = CString::new(config.key_filename).context(ErrorKind::CStringError)?;
+        let cert_filename = config.cert_filename.map(CString::new);
+        let key_filename = config.key_filename.map(CString::new);
+
+        fn unpack_option_cstring<E>(data: &Option<Result<CString, E>>) -> Result<*const i8, Error> {
+            match *data {
+                Some(ref v) => match v {
+                    &Ok(ref s) => Ok(s.as_ptr()),
+                    &Err(_) => Err(ErrorKind::CStringError.into()),
+                },
+                None => Ok(ptr::null()),
+            }
+        }
+
+        let cert_filename_ptr = unpack_option_cstring(&cert_filename)?;
+        let key_filename_ptr = unpack_option_cstring(&key_filename)?;
+
         let reset_seed = config
             .reset_seed
-            .map(|mut v| v.as_mut_ptr())
+            .as_mut()
+            .map(|v| v.as_mut_ptr())
             .unwrap_or_else(|| ptr::null_mut());
 
         let clock = Instant::now();
@@ -44,8 +59,8 @@ impl QuicCtx {
         let quic = unsafe {
             picoquic_create(
                 connection_buckets,
-                cert_filename.as_ptr(),
-                key_filename.as_ptr(),
+                cert_filename_ptr,
+                key_filename_ptr,
                 ptr::null(),
                 default_callback,
                 default_ctx,

@@ -1,5 +1,5 @@
-extern crate cmake;
 extern crate bindgen;
+extern crate cmake;
 
 use std::env;
 use std::fs;
@@ -17,11 +17,8 @@ fn main() {
         .for_each(|e| {
             if let Ok(e) = e {
                 if e.path().extension().map(|e| e == "a").unwrap_or(false) {
-                    fs::copy(
-                        e.path(),
-                        out_path
-                            .join(e.path().file_name().unwrap()),
-                    ).expect("error copying library");
+                    fs::copy(e.path(), out_path.join(e.path().file_name().unwrap()))
+                        .expect("error copying library");
                 }
             }
         });
@@ -35,10 +32,7 @@ fn main() {
         "cargo:rustc-link-search=native={}/build/",
         build_dir.display()
     );
-    println!(
-        "cargo:rustc-link-search=native={}",
-        out_path.display()
-    );
+    println!("cargo:rustc-link-search=native={}", out_path.display());
 
     println!("cargo:rustc-link-lib=static=picoquic-core");
     println!("cargo:rustc-link-lib=static=picotls-core");

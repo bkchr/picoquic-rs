@@ -2,9 +2,20 @@
 name = "picoquic"
 version = "0.1.0"
 authors = ["Bastian Köcher <git@kchr.de>"]
+license = "MIT/Apache-2.0"
+categories = ["asynchronous", "network-programming"]
+readme = "./README.md"
+description = """
+Tokio aware picoquic bindings. Picoquic is a minimalist implementation of the QUIC protocol
+of the IETF.
+"""
+repository = "https://github.com/bkchr/picoquic-rs"
+keywords = ["quic", "future", "tokio", "protocol", "picoquic"]
+
+[badges.travis-ci]
+repository = "bkchr/picoquic"
 
 [dependencies]
-picoquic-sys = { path = "picoquic-sys" }
 tokio-core = "0.1"
 failure = "0.1"
 failure_derive = "0.1"
@@ -13,5 +24,9 @@ bytes = "0.4"
 log = "0.4"
 libc = "0.2"
 socket2 = "0.3"
+
+[dependencies.picoquic-sys]
+path = "./picoquic-sys/"
+version = "0.1.0"
 
 [workspace]

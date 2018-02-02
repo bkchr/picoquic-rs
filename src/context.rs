@@ -10,6 +10,8 @@ use tokio_core::reactor::Handle;
 use futures::sync::mpsc::UnboundedReceiver;
 use futures::{Poll, Stream};
 
+/// The `Picoquic` context. It setups and controls the `UdpSocket`. Every incoming `Connection`
+/// can be obtained by polling this context.
 pub struct Context {
     recv_con: UnboundedReceiver<Connection>,
     local_addr: SocketAddr,
@@ -17,6 +19,7 @@ pub struct Context {
 }
 
 impl Context {
+    /// Creates a new `Context`.
     pub fn new(
         listen_address: &SocketAddr,
         handle: &Handle,
@@ -37,14 +40,17 @@ impl Context {
         })
     }
 
+    /// Returns the local address, this `Context` is bound to.
     pub fn local_addr(&self) -> SocketAddr {
         self.local_addr
     }
 
+    /// Connects to the given address and returns a future that resolves into a `Connection`.
     pub fn new_connection(&mut self, addr: SocketAddr) -> NewConnectionFuture {
         self.new_connection_handle.new_connection(addr)
     }
 
+    /// Returns the handle to create new connections.
     pub fn get_new_connection_handle(&self) -> NewConnectionHandle {
         self.new_connection_handle.clone()
     }
