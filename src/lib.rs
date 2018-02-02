@@ -25,7 +25,7 @@ run `cargo build`.
 ## Example
 
 ### Client
-```ignore
+```no_run
 extern crate bytes;
 extern crate futures;
 extern crate picoquic;
@@ -70,7 +70,7 @@ fn main() {
 ```
 
 ### Server
-```ignore
+```no_run
 extern crate bytes;
 extern crate futures;
 extern crate picoquic;
