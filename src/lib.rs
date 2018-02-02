@@ -1,6 +1,6 @@
 /*!
 # Picoquic-rs - Tokio aware bindings of [picoquic](https://github.com/private-octopus/picoquic)
-[![](https://docs.rs/picoquic/badge.svg)](https://docs.rs/picoquic/) [![](https://img.shields.io/crates/v/picoquic.svg)](https://crates.io/crates/picoquic) [![](https://img.shields.io/crates/d/picoquic.png)](https://crates.io/crates/picoquic) [![Build Status](https://travis-ci.org/bkchr/picoquic.png?branch=master)](https://travis-ci.org/bkchr/picoquic)
+[![](https://docs.rs/picoquic/badge.svg)](https://docs.rs/picoquic/) [![](https://img.shields.io/crates/v/picoquic.svg)](https://crates.io/crates/picoquic) [![](https://img.shields.io/crates/d/picoquic.png)](https://crates.io/crates/picoquic) [![Build Status](https://travis-ci.org/bkchr/picoquic-rs.png?branch=master)](https://travis-ci.org/bkchr/picoquic-rs)
 
 Picoquic is a minimalist implementation of the QUIC protocol by the IETF. The protocol is still
 in [development](https://github.com/quicwg) and so the implementation.
