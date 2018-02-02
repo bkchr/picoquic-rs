@@ -9,6 +9,9 @@ use std::path::PathBuf;
 fn main() {
     // build picotls
     cc::Build::new()
+        .flag("-Wno-unused-parameter")
+        .flag("-Wno-missing-field-initializers")
+        .flag("-Wno-sign-compare")
         .file("src/picotls/lib/picotls.c")
         .file("src/picotls/lib/pembase64.c")
         .file("src/picotls/lib/openssl.c")
@@ -17,6 +20,10 @@ fn main() {
 
     // build picoquic
     cc::Build::new()
+        .flag("-Wno-unused-parameter")
+        .flag("-Wno-sign-compare")
+        .flag("-Wno-unused-but-set-variable")
+        .flag("-Wno-missing-field-initializers")
         .files(
             glob::glob("src/picoquic/picoquic/*.c")
                 .expect("failed to find picoquic c files")
