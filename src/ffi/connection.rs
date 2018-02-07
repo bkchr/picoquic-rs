@@ -5,7 +5,8 @@ use stream;
 
 use picoquic_sys::picoquic::{self, picoquic_close, picoquic_cnx_t, picoquic_create_cnx,
                              picoquic_delete_cnx, picoquic_get_cnx_state, picoquic_get_first_cnx,
-                             picoquic_get_next_cnx, picoquic_get_peer_addr, picoquic_quic_t,
+                             picoquic_get_next_cnx, picoquic_get_peer_addr,
+                             picoquic_null_connection_id, picoquic_quic_t,
                              picoquic_state_enum_picoquic_state_client_ready,
                              picoquic_state_enum_picoquic_state_disconnected,
                              picoquic_state_enum_picoquic_state_server_ready};
@@ -36,7 +37,7 @@ impl Connection {
         let cnx = unsafe {
             picoquic_create_cnx(
                 quic.as_ptr(),
-                0,
+                picoquic_null_connection_id,
                 server_addr.as_ptr() as *mut picoquic::sockaddr,
                 current_time,
                 0,

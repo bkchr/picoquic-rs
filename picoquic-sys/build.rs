@@ -39,6 +39,7 @@ fn main() {
     // generate the rust bindings for the picoquic
     let bindings = bindgen::Builder::default()
         .header("src/picoquic/picoquic/picoquic.h")
+        .header("src/picoquic/picoquic/util.h")
         .generate()
         .expect("Unable to generate picoquic bindings");
 
