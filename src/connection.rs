@@ -29,6 +29,7 @@ enum Message {
 pub struct Connection {
     msg_recv: UnboundedReceiver<Message>,
     peer_addr: SocketAddr,
+    local_addr: SocketAddr,
     new_stream_handle: NewStreamHandle,
 }
 
@@ -36,6 +37,11 @@ impl Connection {
     /// Returns the address of the peer, this `Connection` is connected to.
     pub fn peer_addr(&self) -> SocketAddr {
         self.peer_addr
+    }
+
+    /// Returns the address of the local `Context`, where it is listening on.
+    pub fn local_addr(&self) -> SocketAddr {
+        self.local_addr
     }
 }
 
@@ -65,9 +71,8 @@ impl Connection {
         event: picoquic_call_back_event_t,
     ) -> (Connection, Rc<RefCell<Context>>) {
         let cnx = ffi::Connection::from(cnx);
-        let peer_addr = cnx.get_peer_addr();
 
-        let (con, ctx, c_ctx) = Self::create(cnx, peer_addr, false);
+        let (con, ctx, c_ctx) = Self::create(cnx, cnx.peer_addr(), cnx.local_addr(), false);
 
         // Now we need to call the callback once manually to process the received data
         unsafe {
@@ -81,11 +86,12 @@ impl Connection {
     pub(crate) fn new(
         quic: &QuicCtx,
         peer_addr: SocketAddr,
+        local_addr: SocketAddr,
         current_time: u64,
     ) -> Result<(Connection, Rc<RefCell<Context>>), Error> {
         let cnx = ffi::Connection::new(quic, peer_addr, current_time)?;
 
-        let (con, ctx, _) = Self::create(cnx, peer_addr, true);
+        let (con, ctx, _) = Self::create(cnx, peer_addr, local_addr, true);
 
         Ok((con, ctx))
     }
@@ -93,6 +99,7 @@ impl Connection {
     fn create(
         cnx: ffi::Connection,
         peer_addr: SocketAddr,
+        local_addr: SocketAddr,
         is_client: bool,
     ) -> (Connection, Rc<RefCell<Context>>, *mut c_void) {
         let (sender, msg_recv) = unbounded();
@@ -102,6 +109,7 @@ impl Connection {
         let con = Connection {
             msg_recv,
             peer_addr,
+            local_addr,
             new_stream_handle,
         };
 

@@ -5,8 +5,8 @@ use stream;
 
 use picoquic_sys::picoquic::{self, picoquic_close, picoquic_cnx_t, picoquic_create_cnx,
                              picoquic_delete_cnx, picoquic_get_cnx_state, picoquic_get_first_cnx,
-                             picoquic_get_next_cnx, picoquic_get_peer_addr,
-                             picoquic_null_connection_id, picoquic_quic_t,
+                             picoquic_get_local_addr, picoquic_get_next_cnx,
+                             picoquic_get_peer_addr, picoquic_null_connection_id, picoquic_quic_t,
                              picoquic_state_enum_picoquic_state_client_ready,
                              picoquic_state_enum_picoquic_state_disconnected,
                              picoquic_state_enum_picoquic_state_server_ready};
@@ -58,15 +58,27 @@ impl Connection {
         self.cnx
     }
 
-    /// The peer address of this connection.
-    pub fn get_peer_addr(&self) -> SocketAddr {
-        let mut peer_addr_len = 0;
-        let mut peer_addr: *mut picoquic::sockaddr = ptr::null_mut();
+    /// Returns the peer address of this connection.
+    pub fn peer_addr(&self) -> SocketAddr {
+        let mut addr_len = 0;
+        let mut addr: *mut picoquic::sockaddr = ptr::null_mut();
 
         unsafe {
-            picoquic_get_peer_addr(self.cnx, &mut peer_addr, &mut peer_addr_len);
+            picoquic_get_peer_addr(self.cnx, &mut addr, &mut addr_len);
 
-            socket_addr_from_c(peer_addr, peer_addr_len)
+            socket_addr_from_c(addr, addr_len)
+        }
+    }
+
+    /// Returns the local address of this connection.
+    pub fn local_addr(&self) -> SocketAddr {
+        let mut addr_len = 0;
+        let mut addr: *mut picoquic::sockaddr = ptr::null_mut();
+
+        unsafe {
+            picoquic_get_local_addr(self.cnx, &mut addr, &mut addr_len);
+
+            socket_addr_from_c(addr, addr_len)
         }
     }
 

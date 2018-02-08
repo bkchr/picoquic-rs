@@ -9,6 +9,8 @@ use futures::{Future, Poll, Sink, StartSend, Stream as FStream};
 use futures::Async::Ready;
 use futures::sync::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
 
+use std::net::SocketAddr;
+
 pub type Id = u64;
 
 /// A `Message` is used by the `Stream` to propagate information from the peer or to send
@@ -36,6 +38,8 @@ pub struct Stream {
     recv_msg: UnboundedReceiver<Message>,
     send_msg: UnboundedSender<Message>,
     id: Id,
+    peer_addr: SocketAddr,
+    local_addr: SocketAddr,
 }
 
 impl Stream {
@@ -48,6 +52,8 @@ impl Stream {
             recv_msg: recv_send,
             send_msg: send_msg,
             id,
+            peer_addr: cnx.peer_addr(),
+            local_addr: cnx.local_addr(),
         };
 
         (stream, ctx)
@@ -60,6 +66,16 @@ impl Stream {
         } else {
             Type::Bidirectional
         }
+    }
+
+    /// Returns the address of the `Connection`'s peer.
+    pub fn peer_addr(&self) -> SocketAddr {
+        self.peer_addr
+    }
+
+    /// Returns the address of the `Connection`'s local `Context`, where it is listening on.
+    pub fn local_addr(&self) -> SocketAddr {
+        self.local_addr
     }
 }
 

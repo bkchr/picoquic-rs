@@ -79,7 +79,7 @@ impl ContextInner {
             match self.recv_connect.poll() {
                 Err(_) | Ok(NotReady) | Ok(Ready(None)) => break,
                 Ok(Ready(Some((addr, sender)))) => {
-                    let (con, ctx) = match Connection::new(&self.quic, addr, current_time) {
+                    let (con, ctx) = match Connection::new(&self.quic, addr, self.local_addr(), current_time) {
                         Ok(r) => r,
                         Err(e) => {
                             error!("could not create new connection: {:?}", e);
@@ -111,7 +111,7 @@ impl ContextInner {
                 match con.create_and_prepare_packet(&mut self.buffer, current_time) {
                     Ok(Some(len)) => {
                         let _ = self.socket
-                            .send_to(&self.buffer[..len], &con.get_peer_addr());
+                            .send_to(&self.buffer[..len], &con.peer_addr());
                     }
                     Ok(None) => {}
                     Err(e) => {
