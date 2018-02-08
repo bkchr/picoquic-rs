@@ -3,6 +3,8 @@ use std::fmt;
 use failure::{Backtrace, Context, Fail};
 pub use failure::ResultExt;
 
+use bytes::BytesMut;
+
 #[derive(Debug)]
 pub struct Error {
     inner: Context<ErrorKind>,
@@ -25,8 +27,8 @@ impl fmt::Display for Error {
 }
 
 impl Error {
-    pub fn kind(&self) -> ErrorKind {
-        *self.inner.get_context()
+    pub fn kind(&self) -> &ErrorKind {
+        &self.inner.get_context()
     }
 }
 
@@ -44,7 +46,7 @@ impl From<Context<ErrorKind>> for Error {
     }
 }
 
-#[derive(Copy, Clone, Eq, PartialEq, Debug, Fail)]
+#[derive(Clone, Eq, PartialEq, Debug, Fail)]
 pub enum ErrorKind {
     #[fail(display = "A network error occurred.")]
     NetworkError,
@@ -56,4 +58,6 @@ pub enum ErrorKind {
     Disconnected,
     #[fail(display = "Unknown.")]
     Unknown,
+    #[fail(display = "Send failed.")]
+    SendError(BytesMut),
 }

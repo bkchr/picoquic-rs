@@ -3,7 +3,7 @@ use picoquic_sys::picoquic::{self, picoquic_add_to_stream, picoquic_call_back_ev
                              picoquic_reset_stream};
 use ffi;
 
-use bytes::Bytes;
+use bytes::BytesMut;
 
 use futures::{Future, Poll, Sink, StartSend, Stream as FStream};
 use futures::Async::Ready;
@@ -14,11 +14,11 @@ pub type Id = u64;
 /// A `Message` is used by the `Stream` to propagate information from the peer or to send
 /// information to the peer.
 #[derive(Debug)]
-pub enum Message {
+enum Message {
     /// Close the `Stream`.
     Close,
     /// Send data.
-    Data(Bytes),
+    Data(BytesMut),
 }
 
 /// A `Stream` can either be unidirectional or bidirectional.
@@ -64,24 +64,43 @@ impl Stream {
 }
 
 impl FStream for Stream {
-    type Item = Message;
+    type Item = BytesMut;
     type Error = Error;
 
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
-        self.recv_msg.poll().map_err(|_| ErrorKind::Unknown.into())
+        match try_ready!(
+            self.recv_msg
+                .poll()
+                .map_err(|_| Error::from(ErrorKind::Unknown))
+        ) {
+            Some(Message::Close) | None => Ok(Ready(None)),
+            Some(Message::Data(d)) => Ok(Ready(Some(d))),
+        }
     }
 }
 
 impl Sink for Stream {
-    type SinkItem = Message;
-    type SinkError = <UnboundedSender<Message> as Sink>::SinkError;
+    type SinkItem = BytesMut;
+    type SinkError = Error;
 
     fn start_send(&mut self, item: Self::SinkItem) -> StartSend<Self::SinkItem, Self::SinkError> {
-        self.send_msg.start_send(item)
+        fn extract_data(val: Message) -> BytesMut {
+            match val {
+                Message::Data(d) => d,
+                _ => unreachable!(),
+            }
+        }
+
+        self.send_msg
+            .start_send(Message::Data(item))
+            .map_err(|e| ErrorKind::SendError(extract_data(e.into_inner())).into())
+            .map(|r| r.map(|v| extract_data(v)))
     }
 
     fn poll_complete(&mut self) -> Poll<(), Self::SinkError> {
-        self.send_msg.poll_complete()
+        self.send_msg
+            .poll_complete()
+            .map_err(|_| ErrorKind::Unknown.into())
     }
 }
 
@@ -96,7 +115,7 @@ pub(crate) struct Context {
 }
 
 impl Context {
-    pub fn new(
+    fn new(
         recv_msg: UnboundedSender<Message>,
         mut send_msg: UnboundedReceiver<Message>,
         id: Id,
@@ -133,13 +152,13 @@ impl Context {
             self.reset();
             let _ = self.recv_msg.unbounded_send(Message::Close);
         } else {
-            let data = Bytes::from(data);
+            let data = BytesMut::from(data);
 
             let _ = self.recv_msg.unbounded_send(Message::Data(data));
         }
     }
 
-    fn send_data(&mut self, data: Bytes) {
+    fn send_data(&mut self, data: BytesMut) {
         if is_unidirectional(self.id) && !self.is_unidirectional_send_allowed() {
             //TODO: maybe we should do more than just printing
             error!("tried to send data to incoming unidirectional stream!");

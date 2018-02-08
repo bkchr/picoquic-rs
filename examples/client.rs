@@ -3,11 +3,11 @@ extern crate futures;
 extern crate picoquic;
 extern crate tokio_core;
 
-use picoquic::{Config, Context, SMessage};
+use picoquic::{Config, Context};
 
 use tokio_core::reactor::Core;
 
-use bytes::Bytes;
+use bytes::BytesMut;
 
 use futures::{Future, Sink, Stream};
 
@@ -25,7 +25,7 @@ fn main() {
     let stream = evt_loop.run(con.new_bidirectional_stream()).unwrap();
 
     let stream = evt_loop
-        .run(stream.send(SMessage::Data(Bytes::from("hello server"))))
+        .run(stream.send(BytesMut::from("hello server")))
         .unwrap();
 
     let answer = evt_loop

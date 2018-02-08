@@ -30,11 +30,11 @@ extern crate futures;
 extern crate picoquic;
 extern crate tokio_core;
 
-use picoquic::{Config, Context, SMessage};
+use picoquic::{Config, Context};
 
 use tokio_core::reactor::Core;
 
-use bytes::Bytes;
+use bytes::BytesMut;
 
 use futures::{Future, Sink, Stream};
 
@@ -52,7 +52,7 @@ fn main() {
     let stream = evt_loop.run(con.new_bidirectional_stream()).unwrap();
 
     let stream = evt_loop
-        .run(stream.send(SMessage::Data(Bytes::from("hello server"))))
+        .run(stream.send(BytesMut::from("hello server")))
         .unwrap();
 
     let answer = evt_loop
@@ -75,13 +75,13 @@ extern crate futures;
 extern crate picoquic;
 extern crate tokio_core;
 
-use picoquic::{CMessage, Config, Context, SMessage};
+use picoquic::{Config, Context};
 
 use tokio_core::reactor::Core;
 
 use futures::{Future, Sink, Stream};
 
-use bytes::Bytes;
+use bytes::BytesMut;
 
 fn main() {
     let mut evt_loop = Core::new().unwrap();
@@ -101,26 +101,20 @@ fn main() {
 
     evt_loop
         .run(server.for_each(|c| {
+            let handle = handle.clone();
+
             println!("New connection from: {}", c.peer_addr());
 
-            let handle = handle.clone();
             handle.clone().spawn(c.for_each(move |s| {
-                // Let's see what we got
-                let s = match s {
-                    CMessage::NewStream(s) => s,
-                    _ => return Ok(()),
-                };
-
                 // We print the received message and sent a new one, after that we collect all
                 // remaining messages. The collect is a "hack" that prevents that the `Stream` is
                 // dropped to early.
-                handle.spawn(
+                handle.clone().spawn(
                     s.into_future()
                         .map_err(|_| ())
                         .and_then(|(m, s)| {
                             println!("Got: {:?}", m);
-                            s.send(SMessage::Data(Bytes::from("hello client")))
-                                .map_err(|_| ())
+                            s.send(BytesMut::from("hello client")).map_err(|_| ())
                         })
                         .and_then(|s| s.collect().map_err(|_| ()))
                         .map(|_| ()),
@@ -173,7 +167,7 @@ extern crate socket2;
 extern crate tokio_core;
 
 mod connection;
-mod error;
+pub mod error;
 mod context;
 mod context_inner;
 mod stream;
@@ -182,6 +176,6 @@ mod ffi;
 
 pub use self::context::Context;
 pub use self::context_inner::{NewConnectionFuture, NewConnectionHandle};
-pub use self::connection::{Connection, Message as CMessage, NewStreamFuture, NewStreamHandle};
-pub use self::stream::{Message as SMessage, Stream, Type as SType};
+pub use self::connection::{Connection, NewStreamFuture, NewStreamHandle};
+pub use self::stream::{Stream, Type as SType};
 pub use self::config::Config;

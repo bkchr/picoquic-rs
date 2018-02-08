@@ -3,13 +3,13 @@ extern crate futures;
 extern crate picoquic;
 extern crate tokio_core;
 
-use picoquic::{CMessage, Config, Context, SMessage};
+use picoquic::{Config, Context};
 
 use tokio_core::reactor::Core;
 
 use futures::{Future, Sink, Stream};
 
-use bytes::Bytes;
+use bytes::BytesMut;
 
 fn main() {
     let mut evt_loop = Core::new().unwrap();
@@ -29,26 +29,20 @@ fn main() {
 
     evt_loop
         .run(server.for_each(|c| {
+            let handle = handle.clone();
+
             println!("New connection from: {}", c.peer_addr());
 
-            let handle = handle.clone();
             handle.clone().spawn(c.for_each(move |s| {
-                // Let's see what we got
-                let s = match s {
-                    CMessage::NewStream(s) => s,
-                    _ => return Ok(()),
-                };
-
                 // We print the received message and sent a new one, after that we collect all
                 // remaining messages. The collect is a "hack" that prevents that the `Stream` is
                 // dropped to early.
-                handle.spawn(
+                handle.clone().spawn(
                     s.into_future()
                         .map_err(|_| ())
                         .and_then(|(m, s)| {
                             println!("Got: {:?}", m);
-                            s.send(SMessage::Data(Bytes::from("hello client")))
-                                .map_err(|_| ())
+                            s.send(BytesMut::from("hello client")).map_err(|_| ())
                         })
                         .and_then(|s| s.collect().map_err(|_| ()))
                         .map(|_| ()),

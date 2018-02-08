@@ -20,7 +20,7 @@ use std::slice;
 use std::net::SocketAddr;
 
 #[derive(Debug)]
-pub enum Message {
+enum Message {
     NewStream(Stream),
     Close,
 }
@@ -33,17 +33,25 @@ pub struct Connection {
 }
 
 impl Connection {
+    /// Returns the address of the peer, this `Connection` is connected to.
     pub fn peer_addr(&self) -> SocketAddr {
         self.peer_addr
     }
 }
 
 impl futures::Stream for Connection {
-    type Item = Message;
+    type Item = Stream;
     type Error = Error;
 
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
-        self.msg_recv.poll().map_err(|_| ErrorKind::Unknown.into())
+        match try_ready!(
+            self.msg_recv
+                .poll()
+                .map_err(|_| Error::from(ErrorKind::Unknown))
+        ) {
+            Some(Message::Close) | None => Ok(Ready(None)),
+            Some(Message::NewStream(s)) => Ok(Ready(Some(s))),
+        }
     }
 }
 

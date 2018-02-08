@@ -3,8 +3,7 @@ extern crate futures;
 extern crate picoquic;
 extern crate tokio_core;
 
-use picoquic::{CMessage, Config, Connection, Context, NewStreamFuture, NewStreamHandle, SMessage,
-               SType, Stream};
+use picoquic::{error, Config, Connection, Context, NewStreamFuture, NewStreamHandle, SType, Stream};
 
 use std::net::SocketAddr;
 use std::thread;
@@ -17,7 +16,7 @@ use futures::sync::mpsc::unbounded;
 
 use tokio_core::reactor::{Core, Handle};
 
-use bytes::Bytes;
+use bytes::BytesMut;
 
 fn get_test_config() -> Config {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
@@ -76,27 +75,16 @@ where
     let send_data = "hello server";
     let (send, recv) = unbounded();
 
-    let addr = start_server_thread(move |c, h| {
+    let addr = start_server_thread(move |c, _| {
         c.for_each(move |c| {
-            let h = h.clone();
             let send = send.clone();
             c.for_each(move |s| {
-                let h = h.clone();
                 let send = send.clone();
-                match s {
-                    CMessage::NewStream(s) => h.clone().spawn(s.for_each(move |m| {
-                        match m {
-                            SMessage::Data(data) => {
-                                let _ = send.clone()
-                                    .unbounded_send(String::from_utf8(data.to_vec()).unwrap());
-                            }
-                            _ => {}
-                        };
-                        Ok(())
-                    }).map_err(|_| ())),
-                    _ => {}
-                };
-                Ok(())
+                s.for_each(move |m| {
+                    let _ = send.clone()
+                        .unbounded_send(String::from_utf8(m.to_vec()).unwrap());
+                    Ok(())
+                })
             })
         })
     });
@@ -112,7 +100,7 @@ where
 
     // The stream must not be dropped here!
     let _stream = evt_loop
-        .run(stream.send(SMessage::Data(Bytes::from(send_data))))
+        .run(stream.send(BytesMut::from(send_data)))
         .unwrap();
 
     assert_eq!(
@@ -174,7 +162,7 @@ fn connection_and_stream_closes_on_drop() {
         .expect("creates stream");
 
     let stream = evt_loop
-        .run(stream.send(SMessage::Data(Bytes::from(send_data))))
+        .run(stream.send(BytesMut::from(send_data)))
         .unwrap();
 
     assert!(evt_loop.run(recv.into_future()).unwrap().0.unwrap());
@@ -182,18 +170,16 @@ fn connection_and_stream_closes_on_drop() {
     assert!(match evt_loop
         .run(stream.into_future().map(|(m, _)| m).map_err(|(e, _)| e))
         .unwrap()
-        .unwrap()
     {
-        SMessage::Close => true,
+        None => true,
         _ => false,
     });
 
     assert!(match evt_loop
         .run(con.into_future().map(|(m, _)| m).map_err(|(e, _)| e))
         .unwrap()
-        .unwrap()
     {
-        CMessage::Close => true,
+        None => true,
         _ => false,
     });
 }
@@ -207,25 +193,22 @@ fn open_multiple_streams_sends_data_and_recvs() {
         c.for_each(move |c| {
             let h = h.clone();
 
-            c.for_each(move |s| {
-                let h = h.clone();
-
-                let s = match s {
-                    CMessage::NewStream(s) => s,
-                    CMessage::Close => return Ok(()),
-                };
-
-                h.spawn(
+            h.clone().spawn(c.for_each(move |s| {
+                h.clone().spawn(
                     s.into_future()
                         .map_err(|_| ())
-                        .and_then(|(v, s)| s.send(v.unwrap()).map_err(|_| ()))
+                        .and_then(|(v, s)|{
+                           s.send(v.unwrap())
+                            .map_err(|_| ()) })
                         // we need to do a fake collect here, to prevent that the stream gets
                         // dropped to early.
                         .and_then(|s| s.collect().map_err(|_| ()))
                         .map(|_| ()),
                 );
                 Ok(())
-            })
+            }).map_err(|_| ()));
+
+            Ok(())
         })
     });
 
@@ -243,7 +226,7 @@ fn open_multiple_streams_sends_data_and_recvs() {
             .expect("creates stream");
         streams.push(
             evt_loop
-                .run(stream.send(SMessage::Data(Bytes::from(format!("{}{}", send_data, i)))))
+                .run(stream.send(BytesMut::from(format!("{}{}", send_data, i))))
                 .unwrap(),
         );
     }
@@ -251,14 +234,13 @@ fn open_multiple_streams_sends_data_and_recvs() {
     for (i, stream) in streams.iter_mut().enumerate() {
         assert_eq!(
             format!("{}{}", send_data, i),
-            match evt_loop
-                .run(stream.into_future().map(|(m, _)| m).map_err(|(e, _)| e))
-                .unwrap()
-                .unwrap()
-            {
-                SMessage::Data(data) => String::from_utf8(data.to_vec()).unwrap(),
-                _ => "no data received".to_owned(),
-            }
+            String::from_utf8(
+                evt_loop
+                    .run(stream.into_future().map(|(m, _)| m).map_err(|(e, _)| e))
+                    .unwrap()
+                    .unwrap()
+                    .to_vec()
+            ).unwrap()
         );
     }
 }
@@ -271,36 +253,27 @@ where
     let send_data = "hello server";
 
     let create_stream2 = create_stream.clone();
-    let addr = start_server_thread(move |c, h| {
+    let addr = start_server_thread(move |c, _| {
         let create_stream = create_stream2;
         c.for_each(move |c| {
             let create_stream = create_stream.clone();
             let new_stream = c.get_new_stream_handle();
-            let h = h.clone();
 
             c.for_each(move |s| {
-                let h = h.clone();
                 let create_stream = create_stream.clone();
                 let new_stream = new_stream.clone();
 
-                let s = match s {
-                    CMessage::NewStream(s) => s,
-                    CMessage::Close => return Ok(()),
-                };
-
-                h.spawn(
-                    s.into_future()
-                        .map_err(|_| ())
+                s.into_future()
+                        .map_err(|e| e.0)
                         .and_then(move |(v, _)|
                                   create_stream(new_stream.clone())
-                                  .map_err(|_| ())
-                                  .and_then(move |s| s.send(v.unwrap()).map_err(|_| ())))
+                                  .and_then(move |s|
+                                            s.send(v.unwrap())
+                                            .map_err(|_| error::ErrorKind::Unknown.into())))
                         // we need to do a fake collect here, to prevent that the stream gets
                         // dropped to early.
-                        .and_then(|s| s.collect().map_err(|_| ()))
-                        .map(|_| ()),
-                );
-                Ok(())
+                    .and_then(|s| s.collect().map_err(|_| error::ErrorKind::Unknown.into()))
+                        .map(|_| ())
             })
         })
     });
@@ -315,30 +288,26 @@ where
         .run(create_stream(con.get_new_stream_handle()))
         .expect("creates stream");
     let _stream = evt_loop
-        .run(stream.send(SMessage::Data(Bytes::from(send_data))))
+        .run(stream.send(BytesMut::from(send_data)))
         .unwrap();
 
     let new_stream = evt_loop
         .run(
             con.into_future()
-                .map(|(m, _)| match m.unwrap() {
-                    CMessage::NewStream(s) => s,
-                    _ => panic!("expected new stream"),
-                })
+                .map(|(m, _)| m.unwrap())
                 .map_err(|(e, _)| e),
         )
         .unwrap();
 
     assert_eq!(
         send_data,
-        match evt_loop
-            .run(new_stream.into_future().map(|(m, _)| m).map_err(|(e, _)| e))
-            .unwrap()
-            .unwrap()
-        {
-            SMessage::Data(data) => String::from_utf8(data.to_vec()).unwrap(),
-            _ => "no data received".to_owned(),
-        }
+        String::from_utf8(
+            evt_loop
+                .run(new_stream.into_future().map(|(m, _)| m).map_err(|(e, _)| e))
+                .unwrap()
+                .unwrap()
+                .to_vec()
+        ).unwrap()
     );
 }
 
