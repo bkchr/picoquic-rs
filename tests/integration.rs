@@ -3,7 +3,8 @@ extern crate futures;
 extern crate picoquic;
 extern crate tokio_core;
 
-use picoquic::{error, Config, Connection, Context, NewStreamFuture, NewStreamHandle, SType, Stream};
+use picoquic::{Config, Connection, Context, ErrorKind, NewStreamFuture, NewStreamHandle, SType,
+               Stream};
 
 use std::net::SocketAddr;
 use std::thread;
@@ -269,10 +270,10 @@ where
                                   create_stream(new_stream.clone())
                                   .and_then(move |s|
                                             s.send(v.unwrap())
-                                            .map_err(|_| error::ErrorKind::Unknown.into())))
+                                            .map_err(|_| ErrorKind::Unknown.into())))
                         // we need to do a fake collect here, to prevent that the stream gets
                         // dropped to early.
-                    .and_then(|s| s.collect().map_err(|_| error::ErrorKind::Unknown.into()))
+                    .and_then(|s| s.collect().map_err(|_| ErrorKind::Unknown.into()))
                         .map(|_| ())
             })
         })

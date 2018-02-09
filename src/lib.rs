@@ -167,7 +167,7 @@ extern crate socket2;
 extern crate tokio_core;
 
 mod connection;
-pub mod error;
+mod error;
 mod context;
 mod context_inner;
 mod stream;
@@ -179,3 +179,4 @@ pub use self::context_inner::{NewConnectionFuture, NewConnectionHandle};
 pub use self::connection::{Connection, NewStreamFuture, NewStreamHandle};
 pub use self::stream::{Stream, Type as SType};
 pub use self::config::Config;
+pub use self::error::{Error, ErrorKind};
