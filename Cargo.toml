@@ -29,4 +29,7 @@ socket2 = "0.3"
 path = "./picoquic-sys/"
 version = "0.1.0"
 
+[dev-dependencies]
+timebomb = "0.1"
+
 [workspace]

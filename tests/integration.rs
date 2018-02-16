@@ -1,6 +1,7 @@
 extern crate bytes;
 extern crate futures;
 extern crate picoquic;
+extern crate timebomb;
 extern crate tokio_core;
 
 use picoquic::{Config, Connection, Context, ErrorKind, NewStreamFuture, NewStreamHandle, SType,
@@ -337,4 +338,25 @@ fn open_bi_stream_to_server_and_server_creates_new_bi_stream_to_answer() {
     open_stream_to_server_and_server_creates_new_stream_to_answer(|mut h| {
         h.new_bidirectional_stream()
     });
+}
+
+// Regression test for `ffi::ConnectionIter`.
+// We observed that the connection iterator could loop infinitely, because picoquic reorders
+// connections internally while working with them. The following test should detect this bug.
+#[test]
+fn open_multiple_connections() {
+    timebomb::timeout_ms(
+        || {
+            let (mut context, mut evt_loop) = create_context_and_evt_loop();
+
+            let con0 = context.new_connection(([127, 0, 0, 1], 4000).into());
+            let con1 = context.new_connection(([127, 0, 0, 1], 4001).into());
+            let con2 = context.new_connection(([127, 0, 0, 1], 4002).into());
+            let con3 = context.new_connection(([127, 0, 0, 1], 4003).into());
+            let con4 = context.new_connection(([127, 0, 0, 1], 4004).into());
+
+            evt_loop.run(con0.join5(con1, con2, con3, con4)).unwrap();
+        },
+        10000,
+    );
 }

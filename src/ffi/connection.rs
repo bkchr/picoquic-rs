@@ -167,13 +167,28 @@ impl From<*mut picoquic_cnx_t> for Connection {
 }
 
 pub struct ConnectionIter {
-    current: *mut picoquic_cnx_t,
+    iter: <Vec<*mut picoquic_cnx_t> as IntoIterator>::IntoIter,
 }
 
 impl ConnectionIter {
     pub fn new(quic: *mut picoquic_quic_t) -> ConnectionIter {
+        // We need to build a "stable" iterator.
+        // Picoquic reorders the connections internally, while working with them and that can lead
+        // to an infinite loop over the connections.
+        // So, we build the list once and are safe to not loop infinitely.
+        let mut vec = Vec::new();
+        unsafe {
+            let mut current = picoquic_get_first_cnx(quic);
+
+            while !current.is_null() {
+                vec.push(current);
+
+                current = picoquic_get_next_cnx(current);
+            }
+        }
+
         ConnectionIter {
-            current: unsafe { picoquic_get_first_cnx(quic) },
+            iter: vec.into_iter(),
         }
     }
 }
@@ -182,15 +197,7 @@ impl Iterator for ConnectionIter {
     type Item = Connection;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if !self.current.is_null() {
-            let res = Some(Connection::from(self.current));
-
-            self.current = unsafe { picoquic_get_next_cnx(self.current) };
-
-            res
-        } else {
-            None
-        }
+        self.iter.next().map(Connection::from)
     }
 }
 

@@ -180,7 +180,7 @@ impl Future for ContextInner {
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
         let mut loops_without_sleep = 0;
         // The maximum number of times, we are allowed to loop without returning from this future.
-        // In some circumstances this loop runs forever(Picquic always return `wake_time = 0`)
+        // In some circumstances this loop runs forever(Picoquic always return `wake_time = 0`)
         // and that prevents epoll to deliver new events. To circumvent the problem,
         // we sleep for 10000 micro seconds.
         let max_loops_without_sleep = 5;
