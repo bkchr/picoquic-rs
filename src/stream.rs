@@ -43,7 +43,12 @@ pub struct Stream {
 }
 
 impl Stream {
-    pub(crate) fn new(id: Id, cnx: ffi::Connection, is_client_con: bool) -> (Stream, Context) {
+    pub(crate) fn new(
+        id: Id,
+        cnx: ffi::Connection,
+        local_addr: SocketAddr,
+        is_client_con: bool,
+    ) -> (Stream, Context) {
         let (recv_msg, recv_send) = unbounded();
         let (send_msg, send_recv) = unbounded();
 
@@ -53,7 +58,7 @@ impl Stream {
             send_msg: send_msg,
             id,
             peer_addr: cnx.peer_addr(),
-            local_addr: cnx.local_addr(),
+            local_addr: local_addr,
         };
 
         (stream, ctx)

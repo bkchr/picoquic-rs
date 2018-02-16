@@ -99,6 +99,13 @@ where
     let stream = evt_loop.run(create_stream(con)).expect("creates stream");
     check_type(&stream);
 
+    assert_eq!(
+        stream.local_addr(),
+        ([0, 0, 0, 0], context.local_addr().port()).into()
+    );
+    assert_eq!(stream.peer_addr(), ([127, 0, 0, 1], addr.port()).into());
+    assert_ne!(stream.peer_addr(), stream.local_addr());
+
     // The stream must not be dropped here!
     let _stream = evt_loop
         .run(stream.send(BytesMut::from(send_data)))
@@ -195,6 +202,12 @@ fn open_multiple_streams_sends_data_and_recvs() {
             let h = h.clone();
 
             h.clone().spawn(c.for_each(move |s| {
+                // Peer addr and local addr can not be the same
+                assert_ne!(s.peer_addr(), s.local_addr());
+                // The local address should be unspecified, as we do not set a specific address in
+                // the tests.
+                assert!(s.local_addr().ip().is_unspecified());
+
                 h.clone().spawn(
                     s.into_future()
                         .map_err(|_| ())

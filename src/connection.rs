@@ -104,7 +104,7 @@ impl Connection {
     ) -> (Connection, Rc<RefCell<Context>>, *mut c_void) {
         let (sender, msg_recv) = unbounded();
 
-        let (ctx, c_ctx, new_stream_handle) = Context::new(cnx, sender, is_client);
+        let (ctx, c_ctx, new_stream_handle) = Context::new(cnx, sender, is_client, local_addr);
 
         let con = Connection {
             msg_recv,
@@ -143,6 +143,7 @@ pub(crate) struct Context {
     next_stream_id: u64,
     /// Stores requested `Streams` until the connection is ready to process data. (state == ready)
     wait_for_ready_state: Option<Vec<(Stream, oneshot::Sender<Stream>)>>,
+    local_addr: SocketAddr,
 }
 
 impl Context {
@@ -150,6 +151,7 @@ impl Context {
         cnx: ffi::Connection,
         send_msg: UnboundedSender<Message>,
         is_client: bool,
+        local_addr: SocketAddr,
     ) -> (Rc<RefCell<Context>>, *mut c_void, NewStreamHandle) {
         let (send_create_stream, recv_create_stream) = unbounded();
 
@@ -166,6 +168,7 @@ impl Context {
             is_client,
             next_stream_id: 0,
             wait_for_ready_state: Some(Vec::new()),
+            local_addr,
         }));
 
         // Convert the `Context` to a `*mut c_void` and reset the callback to the
@@ -189,7 +192,7 @@ impl Context {
                 None
             }
             Vacant(entry) => {
-                let (stream, mut ctx) = Stream::new(id, self.cnx, self.is_client);
+                let (stream, mut ctx) = Stream::new(id, self.cnx, self.local_addr, self.is_client);
 
                 ctx.recv_data(data, event);
                 entry.insert(ctx);
@@ -221,7 +224,7 @@ impl Context {
                     );
                     self.next_stream_id += 1;
 
-                    let (stream, ctx) = Stream::new(id, self.cnx, self.is_client);
+                    let (stream, ctx) = Stream::new(id, self.cnx, self.local_addr, self.is_client);
                     assert!(self.streams.insert(id, ctx).is_none());
 
                     match self.wait_for_ready_state {
