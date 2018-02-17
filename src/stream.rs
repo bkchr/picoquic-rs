@@ -125,6 +125,12 @@ impl Sink for Stream {
     }
 }
 
+impl Drop for Stream {
+    fn drop(&mut self) {
+        let _ = self.send_msg.unbounded_send(Message::Close);
+    }
+}
+
 pub(crate) struct Context {
     recv_msg: UnboundedSender<Message>,
     send_msg: UnboundedReceiver<Message>,

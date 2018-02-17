@@ -71,7 +71,7 @@ fn server_start() {
 
 fn client_connects_creates_stream_and_sends_data<F, T>(create_stream: F, check_type: T)
 where
-    F: Fn(Connection) -> NewStreamFuture,
+    F: Fn(Connection) -> (NewStreamFuture, Connection),
     T: Fn(&Stream),
 {
     let send_data = "hello server";
@@ -97,7 +97,8 @@ where
         .run(context.new_connection(([127, 0, 0, 1], addr.port()).into()))
         .expect("creates connection");
 
-    let stream = evt_loop.run(create_stream(con)).expect("creates stream");
+    let (new_stream, _con) = create_stream(con);
+    let stream = evt_loop.run(new_stream).expect("creates stream");
     check_type(&stream);
 
     assert_eq!(
@@ -121,7 +122,10 @@ where
 #[test]
 fn client_connects_creates_bidirectional_stream_and_sends_data() {
     client_connects_creates_stream_and_sends_data(
-        |mut c| c.new_bidirectional_stream(),
+        |mut c| {
+            let stream = c.new_bidirectional_stream();
+            (stream, c)
+        },
         |s| {
             assert!(match s.get_type() {
                 SType::Bidirectional => true,
@@ -134,7 +138,10 @@ fn client_connects_creates_bidirectional_stream_and_sends_data() {
 #[test]
 fn client_connects_creates_unidirectional_stream_and_sends_data() {
     client_connects_creates_stream_and_sends_data(
-        |mut c| c.new_unidirectional_stream(),
+        |mut c| {
+            let stream = c.new_unidirectional_stream();
+            (stream, c)
+        },
         |s| {
             assert!(match s.get_type() {
                 SType::Unidirectional => true,
@@ -146,17 +153,27 @@ fn client_connects_creates_unidirectional_stream_and_sends_data() {
 
 #[test]
 fn connection_and_stream_closes_on_drop() {
+    timebomb::timeout_ms(connection_and_stream_closes_on_drop_inner, 10000);
+}
+
+fn connection_and_stream_closes_on_drop_inner() {
     let send_data = "hello server";
     let (send, recv) = unbounded();
 
     let addr = start_server_thread(move |c, _| {
         c.for_each(move |c| {
             let send = send.clone();
-            c.into_future()
-                .map(move |(_, _)| {
-                    let _ = send.clone().unbounded_send(true);
-                })
-                .map_err(|(e, _)| e)
+            c.into_future().map_err(|e| e.0).and_then(move |(s, c)| {
+                let send = send.clone();
+                s.unwrap()
+                    .into_future()
+                    .map(move |_| {
+                        let _ = send.clone().unbounded_send(true);
+                        let _ = c;
+                        ()
+                    })
+                    .map_err(|e| e.0)
+            })
         })
     });
 
@@ -306,10 +323,10 @@ where
         .run(stream.send(BytesMut::from(send_data)))
         .unwrap();
 
-    let new_stream = evt_loop
+    let (new_stream, _con) = evt_loop
         .run(
             con.into_future()
-                .map(|(m, _)| m.unwrap())
+                .map(|(m, c)| (m.unwrap(), c))
                 .map_err(|(e, _)| e),
         )
         .unwrap();

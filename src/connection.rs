@@ -28,6 +28,7 @@ enum Message {
 /// Represents a connection to a peer.
 pub struct Connection {
     msg_recv: UnboundedReceiver<Message>,
+    close_send: Option<oneshot::Sender<bool>>,
     peer_addr: SocketAddr,
     local_addr: SocketAddr,
     new_stream_handle: NewStreamHandle,
@@ -103,14 +104,17 @@ impl Connection {
         is_client: bool,
     ) -> (Connection, Rc<RefCell<Context>>, *mut c_void) {
         let (sender, msg_recv) = unbounded();
+        let (close_send, close_recv) = oneshot::channel();
 
-        let (ctx, c_ctx, new_stream_handle) = Context::new(cnx, sender, is_client, local_addr);
+        let (ctx, c_ctx, new_stream_handle) =
+            Context::new(cnx, sender, close_recv, is_client, local_addr);
 
         let con = Connection {
             msg_recv,
             peer_addr,
             local_addr,
             new_stream_handle,
+            close_send: Some(close_send),
         };
 
         (con, ctx, c_ctx)
@@ -132,8 +136,15 @@ impl Connection {
     }
 }
 
+impl Drop for Connection {
+    fn drop(&mut self) {
+        self.close_send.take().map(|s| s.send(true));
+    }
+}
+
 pub(crate) struct Context {
     send_msg: UnboundedSender<Message>,
+    close_recv: oneshot::Receiver<bool>,
     recv_create_stream: UnboundedReceiver<(stream::Type, oneshot::Sender<Stream>)>,
     streams: HashMap<stream::Id, stream::Context>,
     cnx: ffi::Connection,
@@ -150,6 +161,7 @@ impl Context {
     fn new(
         cnx: ffi::Connection,
         send_msg: UnboundedSender<Message>,
+        close_recv: oneshot::Receiver<bool>,
         is_client: bool,
         local_addr: SocketAddr,
     ) -> (Rc<RefCell<Context>>, *mut c_void, NewStreamHandle) {
@@ -169,6 +181,7 @@ impl Context {
             next_stream_id: 0,
             wait_for_ready_state: Some(Vec::new()),
             local_addr,
+            close_recv,
         }));
 
         // Convert the `Context` to a `*mut c_void` and reset the callback to the
@@ -271,6 +284,14 @@ impl Future for Context {
             .retain(|_, s| s.poll().map(|r| r.is_not_ready()).unwrap_or(false));
 
         self.check_create_stream_requests();
+
+        // Check if the connection should be closed
+        match self.close_recv.poll() {
+            Err(_) | Ok(Ready(_)) => {
+                self.close();
+            }
+            _ => {}
+        };
 
         Ok(NotReady)
     }
