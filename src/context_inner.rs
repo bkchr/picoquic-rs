@@ -1,7 +1,7 @@
 use error::*;
 use stream;
 use connection::{self, Connection};
-use config::Config;
+use config::{Config, Role};
 use ffi::{MicroSeconds, QuicCtx};
 
 use picoquic_sys::picoquic::{picoquic_call_back_event_t, picoquic_cnx_t, PICOQUIC_MAX_PACKET_SIZE};
@@ -32,6 +32,8 @@ pub struct ContextInner {
     /// drop of connections(because of inactivity), etc..
     timer: Timeout,
     recv_connect: UnboundedReceiver<(SocketAddr, oneshot::Sender<Connection>)>,
+    /// The keep alive interval for client connections
+    client_keep_alive_interval: Option<Duration>,
 }
 
 impl ContextInner {
@@ -47,8 +49,14 @@ impl ContextInner {
         ),
         Error,
     > {
+        let (client_keep_alive_interval, server_keep_alive_interval) =
+            match config.keep_alive_sender {
+                Role::Client => (config.keep_alive_interval.map(|v| v.clone()), None),
+                Role::Server => (None, config.keep_alive_interval.map(|v| v.clone())),
+            };
+
         let (send, recv) = unbounded();
-        let (context, c_ctx) = CContext::new(send);
+        let (context, c_ctx) = CContext::new(send, server_keep_alive_interval);
 
         let quic = QuicCtx::new(config, c_ctx, Some(new_connection_callback))?;
 
@@ -63,6 +71,7 @@ impl ContextInner {
                 buffer: vec![0; PICOQUIC_MAX_PACKET_SIZE as usize],
                 timer: Timeout::new(Duration::from_secs(10), handle).context(ErrorKind::Unknown)?,
                 recv_connect,
+                client_keep_alive_interval,
             },
             recv,
             connect,
@@ -79,14 +88,19 @@ impl ContextInner {
             match self.recv_connect.poll() {
                 Err(_) | Ok(NotReady) | Ok(Ready(None)) => break,
                 Ok(Ready(Some((addr, sender)))) => {
-                    let (con, ctx) =
-                        match Connection::new(&self.quic, addr, self.local_addr(), current_time) {
-                            Ok(r) => r,
-                            Err(e) => {
-                                error!("could not create new connection: {:?}", e);
-                                continue;
-                            }
-                        };
+                    let (con, ctx) = match Connection::new(
+                        &self.quic,
+                        addr,
+                        self.local_addr(),
+                        current_time,
+                        self.client_keep_alive_interval,
+                    ) {
+                        Ok(r) => r,
+                        Err(e) => {
+                            error!("could not create new connection: {:?}", e);
+                            continue;
+                        }
+                    };
 
                     self.context.borrow_mut().connections.push(ctx);
                     let _ = sender.send(con);
@@ -226,13 +240,18 @@ impl Future for ContextInner {
 struct CContext {
     connections: Vec<Rc<RefCell<connection::Context>>>,
     send_con: UnboundedSender<Connection>,
+    server_keep_alive_interval: Option<Duration>,
 }
 
 impl CContext {
-    fn new(send_con: UnboundedSender<Connection>) -> (Rc<RefCell<CContext>>, *mut c_void) {
+    fn new(
+        send_con: UnboundedSender<Connection>,
+        server_keep_alive_interval: Option<Duration>,
+    ) -> (Rc<RefCell<CContext>>, *mut c_void) {
         let mut ctx = Rc::new(RefCell::new(CContext {
             connections: Vec::new(),
             send_con,
+            server_keep_alive_interval,
         }));
 
         let c_ctx = Rc::into_raw(ctx.clone()) as *mut c_void;
@@ -282,7 +301,14 @@ unsafe extern "C" fn new_connection_callback(
 
     let ctx = get_context(ctx);
 
-    let (con, con_ctx) = Connection::from_incoming(cnx, stream_id, bytes, length, event);
+    let (con, con_ctx) = Connection::from_incoming(
+        cnx,
+        stream_id,
+        bytes,
+        length,
+        event,
+        ctx.borrow().server_keep_alive_interval,
+    );
 
     ctx.borrow_mut().new_connection(con, con_ctx);
 

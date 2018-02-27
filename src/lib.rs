@@ -178,5 +178,5 @@ pub use self::context::Context;
 pub use self::context_inner::{NewConnectionFuture, NewConnectionHandle};
 pub use self::connection::{Connection, NewStreamFuture, NewStreamHandle};
 pub use self::stream::{Stream, Type as SType};
-pub use self::config::Config;
+pub use self::config::{Config, Role};
 pub use self::error::{Error, ErrorKind};

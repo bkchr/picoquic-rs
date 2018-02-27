@@ -1,10 +1,11 @@
 use error::*;
 use super::packet::Packet;
-use super::quic_ctx::{socket_addr_from_c, QuicCtx};
+use super::quic_ctx::{socket_addr_from_c, MicroSeconds, QuicCtx};
 use stream;
 
 use picoquic_sys::picoquic::{self, picoquic_close, picoquic_cnx_t, picoquic_create_cnx,
-                             picoquic_delete_cnx, picoquic_get_cnx_state, picoquic_get_first_cnx,
+                             picoquic_delete_cnx, picoquic_enable_keep_alive,
+                             picoquic_get_cnx_state, picoquic_get_first_cnx,
                              picoquic_get_local_addr, picoquic_get_next_cnx,
                              picoquic_get_peer_addr, picoquic_null_connection_id, picoquic_quic_t,
                              picoquic_state_enum_picoquic_state_client_ready,
@@ -13,6 +14,7 @@ use picoquic_sys::picoquic::{self, picoquic_close, picoquic_cnx_t, picoquic_crea
 
 use std::net::SocketAddr;
 use std::ptr;
+use std::time::Duration;
 
 use socket2::SockAddr;
 
@@ -157,6 +159,13 @@ impl Connection {
         }
 
         id
+    }
+
+    pub fn enable_keep_alive(&self, interval: Duration) {
+        let interval = interval.as_micro_seconds();
+        unsafe {
+            picoquic_enable_keep_alive(self.cnx, interval);
+        }
     }
 }
 

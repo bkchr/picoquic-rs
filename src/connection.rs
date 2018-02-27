@@ -18,6 +18,7 @@ use std::rc::Rc;
 use std::cell::RefCell;
 use std::slice;
 use std::net::SocketAddr;
+use std::time::Duration;
 
 #[derive(Debug)]
 enum Message {
@@ -70,10 +71,17 @@ impl Connection {
         data: *mut u8,
         len: usize,
         event: picoquic_call_back_event_t,
+        keep_alive_interval: Option<Duration>,
     ) -> (Connection, Rc<RefCell<Context>>) {
         let cnx = ffi::Connection::from(cnx);
 
-        let (con, ctx, c_ctx) = Self::create(cnx, cnx.peer_addr(), cnx.local_addr(), false);
+        let (con, ctx, c_ctx) = Self::create(
+            cnx,
+            cnx.peer_addr(),
+            cnx.local_addr(),
+            false,
+            keep_alive_interval,
+        );
 
         // Now we need to call the callback once manually to process the received data
         unsafe {
@@ -89,10 +97,11 @@ impl Connection {
         peer_addr: SocketAddr,
         local_addr: SocketAddr,
         current_time: u64,
+        keep_alive_interval: Option<Duration>,
     ) -> Result<(Connection, Rc<RefCell<Context>>), Error> {
         let cnx = ffi::Connection::new(quic, peer_addr, current_time)?;
 
-        let (con, ctx, _) = Self::create(cnx, peer_addr, local_addr, true);
+        let (con, ctx, _) = Self::create(cnx, peer_addr, local_addr, true, keep_alive_interval);
 
         Ok((con, ctx))
     }
@@ -102,12 +111,17 @@ impl Connection {
         peer_addr: SocketAddr,
         local_addr: SocketAddr,
         is_client: bool,
+        keep_alive_interval: Option<Duration>,
     ) -> (Connection, Rc<RefCell<Context>>, *mut c_void) {
         let (sender, msg_recv) = unbounded();
         let (close_send, close_recv) = oneshot::channel();
 
         let (ctx, c_ctx, new_stream_handle) =
             Context::new(cnx, sender, close_recv, is_client, local_addr);
+
+        if let Some(interval) = keep_alive_interval {
+            cnx.enable_keep_alive(interval);
+        }
 
         let con = Connection {
             msg_recv,
