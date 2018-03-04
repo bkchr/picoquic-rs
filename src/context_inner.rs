@@ -2,7 +2,7 @@ use error::*;
 use stream;
 use connection::{self, Connection};
 use config::{Config, Role};
-use ffi::{MicroSeconds, QuicCtx};
+use ffi::QuicCtx;
 
 use picoquic_sys::picoquic::{picoquic_call_back_event_t, picoquic_cnx_t, PICOQUIC_MAX_PACKET_SIZE};
 
@@ -19,7 +19,7 @@ use tokio_core::reactor::{Handle, Timeout};
 
 use futures::sync::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
 use futures::sync::oneshot;
-use futures::{Future, Poll, Stream};
+use futures::{task, Future, Poll, Stream};
 use futures::Async::{NotReady, Ready};
 
 pub struct ContextInner {
@@ -195,9 +195,9 @@ impl Future for ContextInner {
         let mut loops_without_sleep = 0;
         // The maximum number of times, we are allowed to loop without returning from this future.
         // In some circumstances this loop runs forever(Picoquic always return `wake_time = 0`)
-        // and that prevents epoll to deliver new events. To circumvent the problem,
-        // we sleep for 10000 micro seconds.
-        let max_loops_without_sleep = 5;
+        // or the overlying application layer wants to send a lot of data. If we reach the maximum
+        // loop count, we queue the current task to be woken up again and return `Ok(NotReady)`.
+        let max_loops_without_sleep = 50;
 
         loop {
             let current_time = self.quic.get_current_time();
@@ -218,7 +218,7 @@ impl Future for ContextInner {
             let next_wake = self.quic.get_next_wake_up_time(current_time);
 
             if loops_without_sleep >= max_loops_without_sleep {
-                assert!(self.reset_timer(Instant::now() + Duration::from_micro_seconds(10000)));
+                task::current().notify();
                 return Ok(NotReady);
             } else if let Some(next_wake) = next_wake {
                 if !self.reset_timer(next_wake) {
