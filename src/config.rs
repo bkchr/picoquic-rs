@@ -1,3 +1,4 @@
+use super::VerifyCertificate;
 use picoquic_sys::picoquic::PICOQUIC_RESET_SECRET_SIZE;
 
 use std::time::Duration;
@@ -25,6 +26,11 @@ pub struct Config {
     /// The side of a `Connection` that is responsible for sending the keep alive packages.
     /// Default: `Role::Client`
     pub keep_alive_sender: Role,
+    /// Sets TLS client authentication on the server.
+    /// Default: false
+    pub client_authentication: bool,
+    /// The handler that should verify the peer certificate in the TLS handshake.
+    pub verify_certificate_handler: Option<Box<VerifyCertificate>>,
 }
 
 impl Config {
@@ -37,6 +43,8 @@ impl Config {
             reset_seed: None,
             keep_alive_interval: None,
             keep_alive_sender: Role::Client,
+            client_authentication: false,
+            verify_certificate_handler: None,
         }
     }
 
@@ -48,6 +56,8 @@ impl Config {
             reset_seed: None,
             keep_alive_interval: None,
             keep_alive_sender: Role::Client,
+            client_authentication: false,
+            verify_certificate_handler: None,
         }
     }
 
@@ -61,5 +71,15 @@ impl Config {
     /// client, otherwise both send continuously useless messages.
     pub fn set_keep_alive_sender(&mut self, role: Role) {
         self.keep_alive_sender = role;
+    }
+
+    /// Enables TLS client authentication on the server.
+    pub fn enable_client_authentication(&mut self) {
+        self.client_authentication = true;
+    }
+
+    /// Sets the handler that should verify the peer certificate in the TLS handshake.
+    pub fn set_verify_certificate_handler<H: VerifyCertificate + 'static>(&mut self, handler: H) {
+        self.verify_certificate_handler = Some(Box::new(handler));
     }
 }

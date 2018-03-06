@@ -7,7 +7,7 @@ use picoquic_sys::picoquic::{self, picoquic_call_back_event_t, picoquic_cnx_t,
 
 use futures::sync::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
 use futures::sync::oneshot;
-use futures::{self, Future, Poll, Stream as FStream};
+use futures::{Future, Poll, Stream as FStream};
 use futures::Async::{NotReady, Ready};
 
 use std::collections::HashMap;
@@ -47,7 +47,7 @@ impl Connection {
     }
 }
 
-impl futures::Stream for Connection {
+impl FStream for Connection {
     type Item = Stream;
     type Error = Error;
 

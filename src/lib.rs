@@ -161,11 +161,14 @@ extern crate futures;
 extern crate libc;
 #[macro_use]
 extern crate log;
+extern crate openssl;
+extern crate openssl_sys;
 extern crate picoquic_sys;
 extern crate socket2;
 #[macro_use]
 extern crate tokio_core;
 
+mod certificates;
 mod connection;
 mod error;
 mod context;
@@ -180,3 +183,4 @@ pub use self::connection::{Connection, NewStreamFuture, NewStreamHandle};
 pub use self::stream::{Stream, Type as SType};
 pub use self::config::{Config, Role};
 pub use self::error::{Error, ErrorKind};
+pub use self::certificates::VerifyCertificate;

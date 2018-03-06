@@ -2,8 +2,10 @@ use error::*;
 use super::connection::ConnectionIter;
 use super::stateless_packet::StatelessPacketIter;
 use config::Config;
+use ffi::verify_certificate;
 
-use picoquic_sys::picoquic::{self, picoquic_create, picoquic_free, picoquic_get_next_wake_delay,
+use picoquic_sys::picoquic::{self, picoquic_create, picoquic_enable_client_authentication,
+                             picoquic_free, picoquic_get_next_wake_delay,
                              picoquic_incoming_packet, picoquic_quic_t, picoquic_stream_data_cb_fn};
 
 use std::os::raw::c_void;
@@ -76,11 +78,23 @@ impl QuicCtx {
         };
         assert!(!quic.is_null());
 
-        Ok(QuicCtx {
+        let quic = QuicCtx {
             quic,
             max_delay: Duration::from_secs(10),
             clock,
-        })
+        };
+
+        if config.client_authentication {
+            unsafe {
+                picoquic_enable_client_authentication(quic.as_ptr());
+            }
+        }
+
+        if let Some(handler) = config.verify_certificate_handler.take() {
+            verify_certificate::setup_callback(&quic, handler)?;
+        }
+
+        Ok(quic)
     }
 
     /// Creates a dummy instance, that uses a `NULL` pointer for the quic context.
