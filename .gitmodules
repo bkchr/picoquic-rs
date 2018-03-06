@@ -3,4 +3,4 @@
 	url = https://github.com/bkchr/picoquic.git
 [submodule "picoquic-sys/src/picotls"]
 	path = picoquic-sys/src/picotls
-	url = https://github.com/h2o/picotls.git
+	url = https://github.com/bkchr/picotls.git
