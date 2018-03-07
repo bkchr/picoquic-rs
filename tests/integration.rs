@@ -24,8 +24,8 @@ fn get_test_config() -> Config {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
 
     Config::server(
-        &format!("{}/tests/cert.pem", manifest_dir),
-        &format!("{}/tests/key.pem", manifest_dir),
+        &format!("{}/tests/certs/device.test.crt", manifest_dir),
+        &format!("{}/tests/certs/device.key", manifest_dir),
     )
 }
 
