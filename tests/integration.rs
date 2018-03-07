@@ -1,17 +1,19 @@
 extern crate bytes;
 extern crate futures;
+extern crate openssl;
 extern crate picoquic;
 extern crate timebomb;
 extern crate tokio_core;
 
-use picoquic::{Config, Connection, Context, ErrorKind, NewStreamFuture, NewStreamHandle, SType,
-               Stream};
+use picoquic::{default_verify_certificate, Config, Connection, Context, ErrorKind,
+               NewStreamFuture, NewStreamHandle, SType, Stream, VerifyCertificate};
 
 use std::net::SocketAddr;
 use std::thread;
 use std::sync::mpsc::channel;
 use std::fmt;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use futures::{Future, Sink, Stream as FStream};
 use futures::sync::mpsc::unbounded;
@@ -19,6 +21,11 @@ use futures::sync::mpsc::unbounded;
 use tokio_core::reactor::{Core, Handle};
 
 use bytes::BytesMut;
+
+use openssl::stack::StackRef;
+use openssl::x509::{X509, X509Ref};
+use openssl::x509::store::X509StoreBuilder;
+use openssl::error::ErrorStack;
 
 fn get_test_config() -> Config {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
@@ -29,28 +36,39 @@ fn get_test_config() -> Config {
     )
 }
 
-fn create_context_and_evt_loop() -> (Context, Core) {
+fn create_context_and_evt_loop_with_default_config() -> (Context, Core) {
+    create_context_and_evt_loop(get_test_config())
+}
+
+fn create_context_and_evt_loop(config: Config) -> (Context, Core) {
     let evt_loop = Core::new().expect("creates event loop");
 
-    let context = Context::new(
-        &([0, 0, 0, 0], 0).into(),
-        &evt_loop.handle(),
-        get_test_config(),
-    ).expect("creates quic context");
+    let context = Context::new(&([0, 0, 0, 0], 0).into(), &evt_loop.handle(), config)
+        .expect("creates quic context");
 
     (context, evt_loop)
 }
 
-fn start_server_thread<F, R>(create_future: F) -> SocketAddr
+fn start_server_thread_with_default_config<F, R>(create_future: F) -> SocketAddr
 where
     F: 'static + Send + FnOnce(Context, Handle) -> R,
     R: Future,
     <R as Future>::Error: fmt::Debug,
 {
+    start_server_thread(|| get_test_config(), create_future)
+}
+
+fn start_server_thread<F, R, C>(create_config: C, create_future: F) -> SocketAddr
+where
+    F: 'static + Send + FnOnce(Context, Handle) -> R,
+    R: Future,
+    <R as Future>::Error: fmt::Debug,
+    C: 'static + Send + FnOnce() -> Config,
+{
     let (send, recv) = channel();
 
     thread::spawn(move || {
-        let (context, mut evt_loop) = create_context_and_evt_loop();
+        let (context, mut evt_loop) = create_context_and_evt_loop(create_config());
 
         send.send(context.local_addr())
             .expect("sends server socket addr");
@@ -66,18 +84,23 @@ where
 
 #[test]
 fn server_start() {
-    start_server_thread(|c, _| c.for_each(|_| Ok(())));
+    start_server_thread_with_default_config(|c, _| c.for_each(|_| Ok(())));
 }
 
-fn client_connects_creates_stream_and_sends_data<F, T>(create_stream: F, check_type: T)
-where
+fn client_connects_creates_stream_and_sends_data<F, T, C>(
+    client_config: Config,
+    create_server_config: C,
+    create_stream: F,
+    check_type: T,
+) where
     F: Fn(Connection) -> (NewStreamFuture, Connection),
     T: Fn(&Stream),
+    C: 'static + Send + FnOnce() -> Config,
 {
     let send_data = "hello server";
     let (send, recv) = unbounded();
 
-    let addr = start_server_thread(move |c, _| {
+    let addr = start_server_thread(create_server_config, move |c, _| {
         c.for_each(move |c| {
             let send = send.clone();
             c.for_each(move |s| {
@@ -91,7 +114,7 @@ where
         })
     });
 
-    let (mut context, mut evt_loop) = create_context_and_evt_loop();
+    let (mut context, mut evt_loop) = create_context_and_evt_loop(client_config);
 
     let con = evt_loop
         .run(context.new_connection(([127, 0, 0, 1], addr.port()).into()))
@@ -119,9 +142,15 @@ where
     );
 }
 
-#[test]
-fn client_connects_creates_bidirectional_stream_and_sends_data() {
+fn client_connects_creates_bidirectional_stream_and_sends_data_impl<C>(
+    client_config: Config,
+    create_server_config: C,
+) where
+    C: 'static + Send + FnOnce() -> Config,
+{
     client_connects_creates_stream_and_sends_data(
+        client_config,
+        create_server_config,
         |mut c| {
             let stream = c.new_bidirectional_stream();
             (stream, c)
@@ -136,8 +165,17 @@ fn client_connects_creates_bidirectional_stream_and_sends_data() {
 }
 
 #[test]
+fn client_connects_creates_bidirectional_stream_and_sends_data() {
+    client_connects_creates_bidirectional_stream_and_sends_data_impl(get_test_config(), || {
+        get_test_config()
+    });
+}
+
+#[test]
 fn client_connects_creates_unidirectional_stream_and_sends_data() {
     client_connects_creates_stream_and_sends_data(
+        get_test_config(),
+        || get_test_config(),
         |mut c| {
             let stream = c.new_unidirectional_stream();
             (stream, c)
@@ -160,7 +198,7 @@ fn connection_and_stream_closes_on_drop_inner() {
     let send_data = "hello server";
     let (send, recv) = unbounded();
 
-    let addr = start_server_thread(move |c, _| {
+    let addr = start_server_thread_with_default_config(move |c, _| {
         c.for_each(move |c| {
             let send = send.clone();
             c.into_future().map_err(|e| e.0).and_then(move |(s, c)| {
@@ -177,7 +215,7 @@ fn connection_and_stream_closes_on_drop_inner() {
         })
     });
 
-    let (mut context, mut evt_loop) = create_context_and_evt_loop();
+    let (mut context, mut evt_loop) = create_context_and_evt_loop_with_default_config();
 
     let mut con = evt_loop
         .run(context.new_connection(([127, 0, 0, 1], addr.port()).into()))
@@ -215,7 +253,7 @@ fn open_multiple_streams_sends_data_and_recvs() {
     let send_data = "hello server";
     let expected_stream_count = 4;
 
-    let addr = start_server_thread(move |c, h| {
+    let addr = start_server_thread_with_default_config(move |c, h| {
         c.for_each(move |c| {
             let h = h.clone();
 
@@ -244,7 +282,7 @@ fn open_multiple_streams_sends_data_and_recvs() {
         })
     });
 
-    let (mut context, mut evt_loop) = create_context_and_evt_loop();
+    let (mut context, mut evt_loop) = create_context_and_evt_loop_with_default_config();
 
     let mut con = evt_loop
         .run(context.new_connection(([127, 0, 0, 1], addr.port()).into()))
@@ -285,7 +323,7 @@ where
     let send_data = "hello server";
 
     let create_stream2 = create_stream.clone();
-    let addr = start_server_thread(move |c, _| {
+    let addr = start_server_thread_with_default_config(move |c, _| {
         let create_stream = create_stream2;
         c.for_each(move |c| {
             let create_stream = create_stream.clone();
@@ -310,7 +348,7 @@ where
         })
     });
 
-    let (mut context, mut evt_loop) = create_context_and_evt_loop();
+    let (mut context, mut evt_loop) = create_context_and_evt_loop_with_default_config();
 
     let con = evt_loop
         .run(context.new_connection(([127, 0, 0, 1], addr.port()).into()))
@@ -364,7 +402,7 @@ fn open_bi_stream_to_server_and_server_creates_new_bi_stream_to_answer() {
 fn open_multiple_connections() {
     timebomb::timeout_ms(
         || {
-            let (mut context, mut evt_loop) = create_context_and_evt_loop();
+            let (mut context, mut evt_loop) = create_context_and_evt_loop_with_default_config();
 
             let con0 = context.new_connection(([127, 0, 0, 1], 4000).into());
             let con1 = context.new_connection(([127, 0, 0, 1], 4001).into());
@@ -376,4 +414,61 @@ fn open_multiple_connections() {
         },
         10000,
     );
+}
+
+#[derive(Clone)]
+struct CallCounter {
+    inner: Arc<AtomicUsize>,
+}
+
+impl CallCounter {
+    fn new() -> CallCounter {
+        CallCounter {
+            inner: Arc::new(AtomicUsize::new(0)),
+        }
+    }
+
+    fn increment(&self) {
+        self.inner.fetch_add(1, Ordering::SeqCst);
+    }
+
+    fn get(&self) -> usize {
+        self.inner.load(Ordering::SeqCst)
+    }
+}
+
+impl VerifyCertificate for CallCounter {
+    fn verify(&mut self, cert: &X509Ref, chain: &StackRef<X509>) -> Result<(), ErrorStack> {
+        let ca_cert = include_bytes!("certs/ca.crt");
+        let ca_cert = X509::from_pem(ca_cert)?;
+
+        let mut store_bldr = X509StoreBuilder::new().unwrap();
+        store_bldr.add_cert(ca_cert).unwrap();
+        let store = store_bldr.build();
+
+        let res = default_verify_certificate(cert, chain, &store);
+
+        self.increment();
+
+        res
+    }
+}
+
+#[test]
+fn verify_certificate_callback_is_called_on_server_and_client_with_succeed() {
+    let call_counter = CallCounter::new();
+
+    let mut client_config = get_test_config();
+    client_config.set_verify_certificate_handler(call_counter.clone());
+
+    let server_call_counter = call_counter.clone();
+    client_connects_creates_bidirectional_stream_and_sends_data_impl(client_config, move || {
+        let mut server_config = get_test_config();
+        server_config.set_verify_certificate_handler(server_call_counter);
+        // server_config.enable_client_authentication();
+
+        server_config
+    });
+
+    assert_eq!(call_counter.get(), 1);
 }
