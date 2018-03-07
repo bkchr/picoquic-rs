@@ -1,12 +1,12 @@
 use error::*;
-use certificates::{PubKey, VerifyCertificate};
+use certificates::VerifyCertificate;
 use ffi::QuicCtx;
 
 use picoquic_sys::picoquic::{picoquic_cnx_t, picoquic_set_verify_certificate_callback,
                              ptls_iovec_t, verify_sign_cb_fn, PTLS_ALERT_BAD_CERTIFICATE,
                              PTLS_ALERT_CERTIFICATE_EXPIRED, PTLS_ALERT_CERTIFICATE_REVOKED,
-                             PTLS_ALERT_CERTIFICATE_UNKNOWN, PTLS_ERROR_LIBRARY,
-                             PTLS_ERROR_NO_MEMORY, PTLS_ALERT_DECRYPT_ERROR};
+                             PTLS_ALERT_CERTIFICATE_UNKNOWN, PTLS_ALERT_DECRYPT_ERROR,
+                             PTLS_ERROR_LIBRARY, PTLS_ERROR_NO_MEMORY};
 
 use std::os::raw::{c_int, c_void};
 use std::slice;
@@ -14,10 +14,14 @@ use std::mem;
 
 use openssl::error::ErrorStack;
 use openssl::x509::X509;
-use openssl_sys::{X509_V_ERR_CERT_HAS_EXPIRED, X509_V_ERR_CERT_REVOKED, X509_V_ERR_OUT_OF_MEM};
 use openssl::hash::MessageDigest;
 use openssl::sign::Verifier;
 use openssl::stack::Stack;
+use openssl::pkey::{PKey, Public};
+
+use openssl_sys::{X509_V_ERR_CERT_HAS_EXPIRED, X509_V_ERR_CERT_REVOKED, X509_V_ERR_OUT_OF_MEM};
+
+pub type PubKey = PKey<Public>;
 
 pub fn setup_callback(quic: &QuicCtx, handler: Box<VerifyCertificate>) -> Result<(), Error> {
     let result;
@@ -117,8 +121,13 @@ fn verify_certificate_callback_impl(
         Err(_) => return PTLS_ALERT_BAD_CERTIFICATE,
     };
 
-    let pkey = match handler.verify(cert, chain) {
-        Ok(key) => key,
+    match handler.verify(&cert, &chain) {
+        Ok(()) => {}
+        Err(e) => return ssl_error_to_error_code(e),
+    };
+
+    let pkey = match cert.public_key() {
+        Ok(pkey) => pkey,
         Err(e) => return ssl_error_to_error_code(e),
     };
 
