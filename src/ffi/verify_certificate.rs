@@ -17,6 +17,7 @@ use openssl::x509::X509;
 use openssl_sys::{X509_V_ERR_CERT_HAS_EXPIRED, X509_V_ERR_CERT_REVOKED, X509_V_ERR_OUT_OF_MEM};
 use openssl::hash::MessageDigest;
 use openssl::sign::Verifier;
+use openssl::stack::Stack;
 
 pub fn setup_callback(quic: &QuicCtx, handler: Box<VerifyCertificate>) -> Result<(), Error> {
     let result;
@@ -149,13 +150,13 @@ fn ssl_error_to_error_code(error: ErrorStack) -> u32 {
 fn extract_certificates(
     certs: *mut ptls_iovec_t,
     num_certs: usize,
-) -> Result<(X509, Vec<X509>), ErrorStack> {
+) -> Result<(X509, Stack<X509>), ErrorStack> {
     let certs = unsafe { slice::from_raw_parts_mut(certs, num_certs) };
     let cert = extract_certificate(certs[0])?;
-    let mut chain = Vec::new();
+    let mut chain = Stack::new()?;
 
     for i in 1..num_certs {
-        chain.push(extract_certificate(certs[i])?);
+        chain.push(extract_certificate(certs[i])?)?;
     }
 
     Ok((cert, chain))
