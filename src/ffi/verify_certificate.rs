@@ -17,7 +17,8 @@ use openssl::x509::X509;
 use openssl::hash::MessageDigest;
 use openssl::sign::Verifier;
 use openssl::stack::Stack;
-use openssl::pkey::{PKey, Public};
+use openssl::pkey::{PKey, Public, OID};
+use openssl::rsa::Padding;
 
 use openssl_sys::{X509_V_ERR_CERT_HAS_EXPIRED, X509_V_ERR_CERT_REVOKED, X509_V_ERR_OUT_OF_MEM};
 
@@ -67,6 +68,20 @@ unsafe extern "C" fn verify_sign_callback(
         Ok(verifier) => verifier,
         Err(_) => return PTLS_ERROR_LIBRARY as i32,
     };
+
+    if pkey.get_id() == Some(OID::RSA) {
+        if let Err(_) = verifier.set_rsa_padding(Padding::PKCS1_PSS) {
+            return PTLS_ERROR_LIBRARY as i32;
+        }
+
+        if let Err(_) = verifier.set_rsa_pss_saltlen(-1) {
+            return PTLS_ERROR_LIBRARY as i32;
+        }
+
+        if let Err(_) = verifier.set_rsa_mgf1_md(MessageDigest::sha256()) {
+            return PTLS_ERROR_LIBRARY as i32;
+        }
+    }
 
     if verifier.update(data).is_err() {
         return PTLS_ERROR_LIBRARY as i32;
