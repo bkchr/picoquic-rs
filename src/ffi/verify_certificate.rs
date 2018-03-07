@@ -1,5 +1,5 @@
 use error::*;
-use certificates::VerifyCertificate;
+use verify_certificate::VerifyCertificate;
 use ffi::QuicCtx;
 
 use picoquic_sys::picoquic::{picoquic_cnx_t, picoquic_set_verify_certificate_callback,
@@ -23,6 +23,7 @@ use openssl_sys::{X509_V_ERR_CERT_HAS_EXPIRED, X509_V_ERR_CERT_REVOKED, X509_V_E
 
 pub type PubKey = PKey<Public>;
 
+/// Sets up the verify certificate callback in picoquic
 pub fn setup_callback(quic: &QuicCtx, handler: Box<VerifyCertificate>) -> Result<(), Error> {
     let result;
     unsafe {
@@ -43,10 +44,12 @@ pub fn setup_callback(quic: &QuicCtx, handler: Box<VerifyCertificate>) -> Result
     }
 }
 
+/// Will be called by picoquic to free the handler context
 unsafe extern "C" fn free_ctx(ctx: *mut c_void) {
     let _ = get_handler(ctx);
 }
 
+/// Will be called by picoquic to verify the signed data
 unsafe extern "C" fn verify_sign_callback(
     ctx: *mut c_void,
     data: ptls_iovec_t,
@@ -80,6 +83,7 @@ fn get_pkey(ptr: *mut c_void) -> Box<PubKey> {
     unsafe { Box::from_raw(ptr as *mut PubKey) }
 }
 
+/// The main verify certificate callback
 unsafe extern "C" fn verify_certificate_callback(
     ctx: *mut c_void,
     cnx: *mut picoquic_cnx_t,
@@ -126,6 +130,8 @@ fn verify_certificate_callback_impl(
         Err(e) => return ssl_error_to_error_code(e),
     };
 
+    // Extract the public key, as we need this public key to verify the signed data in
+    // `verify_sign_callback`.
     let pkey = match cert.public_key() {
         Ok(pkey) => pkey,
         Err(e) => return ssl_error_to_error_code(e),
@@ -143,6 +149,7 @@ fn get_handler(ptr: *mut c_void) -> Box<Box<VerifyCertificate>> {
     unsafe { Box::from_raw(ptr as *mut Box<VerifyCertificate>) }
 }
 
+/// Converts a openssl error to a picotls error
 fn ssl_error_to_error_code(error: ErrorStack) -> u32 {
     if let Some(error) = error.errors().first() {
         match error.code() as i32 {
