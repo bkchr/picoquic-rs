@@ -4,7 +4,7 @@ use super::stateless_packet::StatelessPacketIter;
 use config::Config;
 use ffi::verify_certificate;
 
-use picoquic_sys::picoquic::{self, picoquic_create, picoquic_enable_client_authentication,
+use picoquic_sys::picoquic::{self, picoquic_create, picoquic_set_client_authentication,
                              picoquic_free, picoquic_get_next_wake_delay,
                              picoquic_incoming_packet, picoquic_quic_t, picoquic_stream_data_cb_fn};
 
@@ -86,7 +86,7 @@ impl QuicCtx {
 
         if config.client_authentication {
             unsafe {
-                picoquic_enable_client_authentication(quic.as_ptr());
+                picoquic_set_client_authentication(quic.as_ptr(), 1);
             }
         }
 

@@ -3,7 +3,7 @@ use verify_certificate::VerifyCertificate;
 use ffi::QuicCtx;
 
 use picoquic_sys::picoquic::{picoquic_cnx_t, picoquic_set_verify_certificate_callback,
-                             ptls_iovec_t, verify_sign_cb_fn, PTLS_ALERT_BAD_CERTIFICATE,
+                             ptls_iovec_t, picoquic_verify_sign_cb_fn, PTLS_ALERT_BAD_CERTIFICATE,
                              PTLS_ALERT_CERTIFICATE_EXPIRED, PTLS_ALERT_CERTIFICATE_REVOKED,
                              PTLS_ALERT_CERTIFICATE_UNKNOWN, PTLS_ALERT_DECRYPT_ERROR,
                              PTLS_ERROR_LIBRARY, PTLS_ERROR_NO_MEMORY};
@@ -104,7 +104,7 @@ unsafe extern "C" fn verify_certificate_callback(
     cnx: *mut picoquic_cnx_t,
     certs: *mut ptls_iovec_t,
     num_certs: usize,
-    verify_sign: *mut verify_sign_cb_fn,
+    verify_sign: *mut picoquic_verify_sign_cb_fn,
     verify_sign_ctx: *mut *mut c_void,
 ) -> c_int {
     let mut handler = get_handler(ctx);
@@ -128,7 +128,7 @@ fn verify_certificate_callback_impl(
     _cnx: *mut picoquic_cnx_t,
     certs: *mut ptls_iovec_t,
     num_certs: usize,
-    verify_sign: *mut verify_sign_cb_fn,
+    verify_sign: *mut picoquic_verify_sign_cb_fn,
     verify_sign_ctx: *mut *mut c_void,
 ) -> u32 {
     if num_certs == 0 {
