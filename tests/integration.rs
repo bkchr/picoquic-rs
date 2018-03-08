@@ -465,10 +465,10 @@ fn verify_certificate_callback_is_called_on_server_and_client_with_succeed() {
     client_connects_creates_bidirectional_stream_and_sends_data_impl(client_config, move || {
         let mut server_config = get_test_config();
         server_config.set_verify_certificate_handler(server_call_counter);
-        // server_config.enable_client_authentication();
+        server_config.enable_client_authentication();
 
         server_config
     });
 
-    assert_eq!(call_counter.get(), 1);
+    assert_eq!(call_counter.get(), 2);
 }
