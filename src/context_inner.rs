@@ -88,12 +88,13 @@ impl ContextInner {
             match self.recv_connect.poll() {
                 Err(_) | Ok(NotReady) | Ok(Ready(None)) => break,
                 Ok(Ready(Some((addr, sender)))) => {
-                    let (con, ctx) = match Connection::new(
+                    let ctx = match Connection::new(
                         &self.quic,
                         addr,
                         self.local_addr(),
                         current_time,
                         self.client_keep_alive_interval,
+                        sender,
                     ) {
                         Ok(r) => r,
                         Err(e) => {
@@ -103,7 +104,6 @@ impl ContextInner {
                     };
 
                     self.context.borrow_mut().connections.push(ctx);
-                    let _ = sender.send(con);
                 }
             }
         }

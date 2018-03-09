@@ -1,9 +1,9 @@
 use error::*;
 use verify_certificate::VerifyCertificate;
-use ffi::QuicCtx;
+use ffi::{Connection, QuicCtx};
 
 use picoquic_sys::picoquic::{picoquic_cnx_t, picoquic_set_verify_certificate_callback,
-                             ptls_iovec_t, picoquic_verify_sign_cb_fn, PTLS_ALERT_BAD_CERTIFICATE,
+                             picoquic_verify_sign_cb_fn, ptls_iovec_t, PTLS_ALERT_BAD_CERTIFICATE,
                              PTLS_ALERT_CERTIFICATE_EXPIRED, PTLS_ALERT_CERTIFICATE_REVOKED,
                              PTLS_ALERT_CERTIFICATE_UNKNOWN, PTLS_ALERT_DECRYPT_ERROR,
                              PTLS_ERROR_LIBRARY, PTLS_ERROR_NO_MEMORY};
@@ -125,7 +125,7 @@ unsafe extern "C" fn verify_certificate_callback(
 
 fn verify_certificate_callback_impl(
     handler: &mut Box<Box<VerifyCertificate>>,
-    _cnx: *mut picoquic_cnx_t,
+    cnx: *mut picoquic_cnx_t,
     certs: *mut ptls_iovec_t,
     num_certs: usize,
     verify_sign: *mut picoquic_verify_sign_cb_fn,
@@ -140,7 +140,11 @@ fn verify_certificate_callback_impl(
         Err(_) => return PTLS_ALERT_BAD_CERTIFICATE,
     };
 
-    match handler.verify(&cert, &chain) {
+    let id = Connection::from(cnx)
+        .id()
+        .expect("Connection id needs to be set in the verify certificate callback");
+
+    match handler.verify(id, &cert, &chain) {
         Ok(()) => {}
         Err(e) => return ssl_error_to_error_code(e),
     };

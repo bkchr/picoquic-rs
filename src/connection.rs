@@ -20,19 +20,59 @@ use std::slice;
 use std::net::SocketAddr;
 use std::time::Duration;
 
+pub type Id = u64;
+
 #[derive(Debug)]
 enum Message {
     NewStream(Stream),
     Close,
 }
 
-/// Represents a connection to a peer.
-pub struct Connection {
+struct ConnectionBuilder {
     msg_recv: UnboundedReceiver<Message>,
-    close_send: Option<oneshot::Sender<bool>>,
+    close_send: oneshot::Sender<()>,
     peer_addr: SocketAddr,
     local_addr: SocketAddr,
     new_stream_handle: NewStreamHandle,
+}
+
+impl ConnectionBuilder {
+    fn new(
+        msg_recv: UnboundedReceiver<Message>,
+        close_send: oneshot::Sender<()>,
+        peer_addr: SocketAddr,
+        local_addr: SocketAddr,
+        new_stream_handle: NewStreamHandle,
+    ) -> ConnectionBuilder {
+        ConnectionBuilder {
+            msg_recv,
+            close_send,
+            peer_addr,
+            local_addr,
+            new_stream_handle,
+        }
+    }
+
+    fn build(self, id: Id) -> Connection {
+        Connection {
+            msg_recv: self.msg_recv,
+            close_send: Some(self.close_send),
+            peer_addr: self.peer_addr,
+            local_addr: self.local_addr,
+            new_stream_handle: self.new_stream_handle,
+            id,
+        }
+    }
+}
+
+/// Represents a connection to a peer.
+pub struct Connection {
+    msg_recv: UnboundedReceiver<Message>,
+    close_send: Option<oneshot::Sender<()>>,
+    peer_addr: SocketAddr,
+    local_addr: SocketAddr,
+    new_stream_handle: NewStreamHandle,
+    id: Id,
 }
 
 impl Connection {
@@ -44,6 +84,12 @@ impl Connection {
     /// Returns the address of the local `Context`, where it is listening on.
     pub fn local_addr(&self) -> SocketAddr {
         self.local_addr
+    }
+
+    /// Returns the id of this `Connection`.
+    /// The id is at the server and at the client the same.
+    pub fn id(&self) -> Id {
+        self.id
     }
 }
 
@@ -75,12 +121,17 @@ impl Connection {
     ) -> (Connection, Rc<RefCell<Context>>) {
         let cnx = ffi::Connection::from(cnx);
 
-        let (con, ctx, c_ctx) = Self::create(
+        let (builder, ctx, c_ctx) = Self::create_builder(
             cnx,
             cnx.peer_addr(),
             cnx.local_addr(),
             false,
             keep_alive_interval,
+        );
+
+        let con = builder.build(
+            cnx.id()
+                .expect("Connection id must be set for incoming connections."),
         );
 
         // Now we need to call the callback once manually to process the received data
@@ -98,21 +149,31 @@ impl Connection {
         local_addr: SocketAddr,
         current_time: u64,
         keep_alive_interval: Option<Duration>,
-    ) -> Result<(Connection, Rc<RefCell<Context>>), Error> {
+        created_sender: oneshot::Sender<Connection>,
+    ) -> Result<(Rc<RefCell<Context>>), Error> {
         let cnx = ffi::Connection::new(quic, peer_addr, current_time)?;
 
-        let (con, ctx, _) = Self::create(cnx, peer_addr, local_addr, true, keep_alive_interval);
+        let (builder, ctx, _) = Self::create_builder(
+            cnx,
+            peer_addr,
+            local_addr,
+            true,
+            keep_alive_interval,
+        );
 
-        Ok((con, ctx))
+        // set the builder and the sender as waiting for ready state payload
+        ctx.borrow_mut().set_wait_for_ready_state(builder, created_sender);
+
+        Ok(ctx)
     }
 
-    fn create(
+    fn create_builder(
         cnx: ffi::Connection,
         peer_addr: SocketAddr,
         local_addr: SocketAddr,
         is_client: bool,
         keep_alive_interval: Option<Duration>,
-    ) -> (Connection, Rc<RefCell<Context>>, *mut c_void) {
+    ) -> (ConnectionBuilder, Rc<RefCell<Context>>, *mut c_void) {
         let (sender, msg_recv) = unbounded();
         let (close_send, close_recv) = oneshot::channel();
 
@@ -123,15 +184,15 @@ impl Connection {
             cnx.enable_keep_alive(interval);
         }
 
-        let con = Connection {
+        let builder = ConnectionBuilder::new(
             msg_recv,
+            close_send,
             peer_addr,
             local_addr,
             new_stream_handle,
-            close_send: Some(close_send),
-        };
+        );
 
-        (con, ctx, c_ctx)
+        (builder, ctx, c_ctx)
     }
 
     /// Creates a new bidirectional `Stream`.
@@ -152,13 +213,13 @@ impl Connection {
 
 impl Drop for Connection {
     fn drop(&mut self) {
-        self.close_send.take().map(|s| s.send(true));
+        self.close_send.take().map(|s| s.send(()));
     }
 }
 
 pub(crate) struct Context {
     send_msg: UnboundedSender<Message>,
-    close_recv: oneshot::Receiver<bool>,
+    close_recv: oneshot::Receiver<()>,
     recv_create_stream: UnboundedReceiver<(stream::Type, oneshot::Sender<Stream>)>,
     streams: HashMap<stream::Id, stream::Context>,
     cnx: ffi::Connection,
@@ -166,8 +227,10 @@ pub(crate) struct Context {
     /// Is the connection initiated by us?
     is_client: bool,
     next_stream_id: u64,
-    /// Stores requested `Streams` until the connection is ready to process data. (state == ready)
-    wait_for_ready_state: Option<Vec<(Stream, oneshot::Sender<Stream>)>>,
+    /// If we create an outgoing connection, we postpone the `Connection` creation to the point
+    /// where the connection state is ready. This is necessary, because some information that we
+    /// require for the `Connection` object is not available up to this point.
+    wait_for_ready_state: Option<(ConnectionBuilder, oneshot::Sender<Connection>)>,
     local_addr: SocketAddr,
 }
 
@@ -175,7 +238,7 @@ impl Context {
     fn new(
         cnx: ffi::Connection,
         send_msg: UnboundedSender<Message>,
-        close_recv: oneshot::Receiver<bool>,
+        close_recv: oneshot::Receiver<()>,
         is_client: bool,
         local_addr: SocketAddr,
     ) -> (Rc<RefCell<Context>>, *mut c_void, NewStreamHandle) {
@@ -193,7 +256,7 @@ impl Context {
             recv_create_stream,
             is_client,
             next_stream_id: 0,
-            wait_for_ready_state: Some(Vec::new()),
+            wait_for_ready_state: None,
             local_addr,
             close_recv,
         }));
@@ -254,12 +317,7 @@ impl Context {
                     let (stream, ctx) = Stream::new(id, self.cnx, self.local_addr, self.is_client);
                     assert!(self.streams.insert(id, ctx).is_none());
 
-                    match self.wait_for_ready_state {
-                        Some(ref mut wait) => wait.push((stream, sender)),
-                        None => {
-                            let _ = sender.send(stream);
-                        }
-                    };
+                    let _ = sender.send(stream);
                 }
             }
         }
@@ -273,11 +331,19 @@ impl Context {
 
     fn process_wait_for_ready_state(&mut self) {
         match self.wait_for_ready_state.take() {
-            Some(wait) => wait.into_iter().for_each(|(stream, sender)| {
-                sender.send(stream).unwrap();
-            }),
+            Some((builder, sender)) => {
+                let id = self.cnx.id().expect("Connection id should be set after reaching the ready state.");
+
+                let con = builder.build(id);
+
+                let _ = sender.send(con);
+            },
             None => panic!("connection can only switches once into `ready` state!"),
         };
+    }
+
+    fn set_wait_for_ready_state(&mut self, builder: ConnectionBuilder, sender: oneshot::Sender<Connection>) {
+        self.wait_for_ready_state = Some((builder, sender));
     }
 }
 

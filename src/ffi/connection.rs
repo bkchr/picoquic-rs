@@ -2,15 +2,18 @@ use error::*;
 use super::packet::Packet;
 use super::quic_ctx::{socket_addr_from_c, MicroSeconds, QuicCtx};
 use stream;
+use connection;
 
 use picoquic_sys::picoquic::{self, picoquic_close, picoquic_cnx_t, picoquic_create_cnx,
                              picoquic_delete_cnx, picoquic_enable_keep_alive,
-                             picoquic_get_cnx_state, picoquic_get_first_cnx,
+                             picoquic_get_cnx_state, picoquic_get_cnxid, picoquic_get_first_cnx,
                              picoquic_get_local_addr, picoquic_get_next_cnx,
-                             picoquic_get_peer_addr, picoquic_null_connection_id, picoquic_quic_t,
+                             picoquic_get_peer_addr, picoquic_is_connection_id_null,
+                             picoquic_null_connection_id, picoquic_quic_t,
                              picoquic_state_enum_picoquic_state_client_ready,
                              picoquic_state_enum_picoquic_state_disconnected,
-                             picoquic_state_enum_picoquic_state_server_ready};
+                             picoquic_state_enum_picoquic_state_server_ready,
+                             picoquic_val64_connection_id};
 
 use std::net::SocketAddr;
 use std::ptr;
@@ -113,17 +116,17 @@ impl Connection {
     }
 
     pub fn is_disconnected(&self) -> bool {
-        self.get_state() == picoquic_state_enum_picoquic_state_disconnected
+        self.state() == picoquic_state_enum_picoquic_state_disconnected
     }
 
     /// Is the connection ready to be used?
     pub fn is_ready(&self) -> bool {
-        let state = self.get_state();
+        let state = self.state();
         state == picoquic_state_enum_picoquic_state_client_ready
             || state == picoquic_state_enum_picoquic_state_server_ready
     }
 
-    fn get_state(&self) -> u32 {
+    fn state(&self) -> u32 {
         unsafe { picoquic_get_cnx_state(self.cnx) }
     }
 
@@ -165,6 +168,21 @@ impl Connection {
         let interval = interval.as_micro_seconds();
         unsafe {
             picoquic_enable_keep_alive(self.cnx, interval);
+        }
+    }
+
+    /// Returns the connection id for this connection.
+    /// The connection id is set by the server and if the function called to early, it returns
+    /// `None`, because we do not have the correct connection id at this point.
+    pub fn id(&self) -> Option<connection::Id> {
+        unsafe {
+            let id = picoquic_get_cnxid(self.as_ptr());
+
+            if picoquic_is_connection_id_null(id) == 0 {
+                Some(picoquic_val64_connection_id(id))
+            } else {
+                None
+            }
         }
     }
 }

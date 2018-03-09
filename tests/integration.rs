@@ -5,14 +5,14 @@ extern crate picoquic;
 extern crate timebomb;
 extern crate tokio_core;
 
-use picoquic::{default_verify_certificate, Config, Connection, Context, ErrorKind,
+use picoquic::{default_verify_certificate, Config, Connection, ConnectionId, Context, ErrorKind,
                NewStreamFuture, NewStreamHandle, SType, Stream, VerifyCertificate};
 
 use std::net::SocketAddr;
 use std::thread;
 use std::sync::mpsc::channel;
 use std::fmt;
-use std::sync::Arc;
+use std::sync::{Mutex, Arc };
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use futures::{Future, Sink, Stream as FStream};
@@ -395,52 +395,46 @@ fn open_bi_stream_to_server_and_server_creates_new_bi_stream_to_answer() {
     });
 }
 
-// Regression test for `ffi::ConnectionIter`.
-// We observed that the connection iterator could loop infinitely, because picoquic reorders
-// connections internally while working with them. The following test should detect this bug.
-#[test]
-fn open_multiple_connections() {
-    timebomb::timeout_ms(
-        || {
-            let (mut context, mut evt_loop) = create_context_and_evt_loop_with_default_config();
-
-            let con0 = context.new_connection(([127, 0, 0, 1], 4000).into());
-            let con1 = context.new_connection(([127, 0, 0, 1], 4001).into());
-            let con2 = context.new_connection(([127, 0, 0, 1], 4002).into());
-            let con3 = context.new_connection(([127, 0, 0, 1], 4003).into());
-            let con4 = context.new_connection(([127, 0, 0, 1], 4004).into());
-
-            evt_loop.run(con0.join5(con1, con2, con3, con4)).unwrap();
-        },
-        10000,
-    );
-}
-
 #[derive(Clone)]
-struct CallCounter {
-    inner: Arc<AtomicUsize>,
+struct VerifyCertificateImpl {
+    counter: Arc<AtomicUsize>,
+    connection_id: Arc<Mutex<Option<ConnectionId>>>,
 }
 
-impl CallCounter {
-    fn new() -> CallCounter {
-        CallCounter {
-            inner: Arc::new(AtomicUsize::new(0)),
+impl VerifyCertificateImpl {
+    fn new() -> VerifyCertificateImpl {
+        VerifyCertificateImpl {
+            counter: Arc::new(AtomicUsize::new(0)),
+            connection_id: Arc::new(Mutex::new(None)),
         }
     }
 
     fn increment(&self) {
-        self.inner.fetch_add(1, Ordering::SeqCst);
+        self.counter.fetch_add(1, Ordering::SeqCst);
     }
 
     fn get(&self) -> usize {
-        self.inner.load(Ordering::SeqCst)
+        self.counter.load(Ordering::SeqCst)
     }
 }
 
-impl VerifyCertificate for CallCounter {
-    fn verify(&mut self, cert: &X509Ref, chain: &StackRef<X509>) -> Result<(), ErrorStack> {
+impl VerifyCertificate for VerifyCertificateImpl {
+    fn verify(
+        &mut self,
+        id: ConnectionId,
+        cert: &X509Ref,
+        chain: &StackRef<X509>,
+    ) -> Result<(), ErrorStack> {
         let ca_cert = include_bytes!("certs/ca.crt");
         let ca_cert = X509::from_pem(ca_cert)?;
+
+        let mut connection_id = self.connection_id.lock().unwrap();
+
+        if let Some(val) = *connection_id {
+            assert_eq!(val, id);
+        } else {
+            *connection_id = Some(id);
+        }
 
         let mut store_bldr = X509StoreBuilder::new().unwrap();
         store_bldr.add_cert(ca_cert).unwrap();
@@ -456,7 +450,7 @@ impl VerifyCertificate for CallCounter {
 
 #[test]
 fn verify_certificate_callback_is_called_on_server_and_client_with_succeed() {
-    let call_counter = CallCounter::new();
+    let call_counter = VerifyCertificateImpl::new();
 
     let mut client_config = get_test_config();
     client_config.set_verify_certificate_handler(call_counter.clone());

@@ -1,3 +1,5 @@
+use ConnectionId;
+
 use openssl::x509::{X509, X509Ref, X509StoreContext};
 use openssl::x509::store::X509StoreRef;
 use openssl::error::ErrorStack;
@@ -12,7 +14,12 @@ pub trait VerifyCertificate {
     ///
     /// If the certificate could be verified, the function should return `Ok(())`, otherwise
     /// a `Err(ErrorStack)` is expected.
-    fn verify(&mut self, cert: &X509Ref, chain: &StackRef<X509>) -> Result<(), ErrorStack>;
+    fn verify(
+        &mut self,
+        connection_id: ConnectionId,
+        cert: &X509Ref,
+        chain: &StackRef<X509>,
+    ) -> Result<(), ErrorStack>;
 }
 
 /// Provides a default implementation for verifying a certificate and certificates chain against
