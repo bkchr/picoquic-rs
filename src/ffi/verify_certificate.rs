@@ -140,11 +140,12 @@ fn verify_certificate_callback_impl(
         Err(_) => return PTLS_ALERT_BAD_CERTIFICATE,
     };
 
-    let id = Connection::from(cnx)
-        .id()
+    let cnx = Connection::from(cnx);
+
+    let id = cnx.id()
         .expect("Connection id needs to be set in the verify certificate callback");
 
-    match handler.verify(id, &cert, &chain) {
+    match handler.verify(id, cnx.con_type(), &cert, &chain) {
         Ok(()) => {}
         Err(e) => return ssl_error_to_error_code(e),
     };

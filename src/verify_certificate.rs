@@ -1,4 +1,4 @@
-use ConnectionId;
+use {ConnectionId, ConnectionType};
 
 use openssl::x509::{X509, X509Ref, X509StoreContext};
 use openssl::x509::store::X509StoreRef;
@@ -17,6 +17,7 @@ pub trait VerifyCertificate {
     fn verify(
         &mut self,
         connection_id: ConnectionId,
+        connection_type: ConnectionType,
         cert: &X509Ref,
         chain: &StackRef<X509>,
     ) -> Result<(), ErrorStack>;

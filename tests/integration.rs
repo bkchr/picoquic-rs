@@ -6,7 +6,7 @@ extern crate timebomb;
 extern crate tokio_core;
 
 use picoquic::{default_verify_certificate, Config, Connection, ConnectionId, Context, ErrorKind,
-               NewStreamFuture, NewStreamHandle, SType, Stream, VerifyCertificate};
+               NewStreamFuture, NewStreamHandle, SType, Stream, VerifyCertificate, ConnectionType};
 
 use std::net::SocketAddr;
 use std::thread;
@@ -102,6 +102,7 @@ fn client_connects_creates_stream_and_sends_data<F, T, C>(
 
     let addr = start_server_thread(create_server_config, move |c, _| {
         c.for_each(move |c| {
+            assert_eq!(c.get_type(), ConnectionType::Incoming);
             let send = send.clone();
             c.for_each(move |s| {
                 let send = send.clone();
@@ -119,6 +120,7 @@ fn client_connects_creates_stream_and_sends_data<F, T, C>(
     let con = evt_loop
         .run(context.new_connection(([127, 0, 0, 1], addr.port()).into()))
         .expect("creates connection");
+    assert_eq!(con.get_type(), ConnectionType::Outgoing);
 
     let (new_stream, _con) = create_stream(con);
     let stream = evt_loop.run(new_stream).expect("creates stream");
@@ -422,6 +424,7 @@ impl VerifyCertificate for VerifyCertificateImpl {
     fn verify(
         &mut self,
         id: ConnectionId,
+        _: ConnectionType,
         cert: &X509Ref,
         chain: &StackRef<X509>,
     ) -> Result<(), ErrorStack> {

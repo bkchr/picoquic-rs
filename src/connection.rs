@@ -28,12 +28,22 @@ enum Message {
     Close,
 }
 
+/// A `Connection` can either be `Incoming` or `Outgoing`.
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub enum Type {
+    /// The `Connection` was created, because a remote peer created it.
+    Incoming,
+    /// The `Connection` was created, because the local peer created it.
+    Outgoing
+}
+
 struct ConnectionBuilder {
     msg_recv: UnboundedReceiver<Message>,
     close_send: oneshot::Sender<()>,
     peer_addr: SocketAddr,
     local_addr: SocketAddr,
     new_stream_handle: NewStreamHandle,
+    ctype: Type,
 }
 
 impl ConnectionBuilder {
@@ -43,6 +53,7 @@ impl ConnectionBuilder {
         peer_addr: SocketAddr,
         local_addr: SocketAddr,
         new_stream_handle: NewStreamHandle,
+        ctype: Type,
     ) -> ConnectionBuilder {
         ConnectionBuilder {
             msg_recv,
@@ -50,6 +61,7 @@ impl ConnectionBuilder {
             peer_addr,
             local_addr,
             new_stream_handle,
+            ctype,
         }
     }
 
@@ -60,6 +72,7 @@ impl ConnectionBuilder {
             peer_addr: self.peer_addr,
             local_addr: self.local_addr,
             new_stream_handle: self.new_stream_handle,
+            ctype: self.ctype,
             id,
         }
     }
@@ -73,6 +86,7 @@ pub struct Connection {
     local_addr: SocketAddr,
     new_stream_handle: NewStreamHandle,
     id: Id,
+    ctype: Type,
 }
 
 impl Connection {
@@ -90,6 +104,11 @@ impl Connection {
     /// The id is at the server and at the client the same.
     pub fn id(&self) -> Id {
         self.id
+    }
+
+    /// Returns the `Type` of this `Connection`.
+    pub fn get_type(&self) -> Type {
+        self.ctype
     }
 }
 
@@ -190,6 +209,7 @@ impl Connection {
             peer_addr,
             local_addr,
             new_stream_handle,
+            cnx.con_type(),
         );
 
         (builder, ctx, c_ctx)
