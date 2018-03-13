@@ -38,7 +38,8 @@ fn main() {
 
     // generate the rust bindings for the picoquic
     let bindings = bindgen::Builder::default()
-        .clang_arg("-Isrc/picotls/include/")
+        .clang_arg("-DNULL=0")
+        .header("src/picotls/include/picotls.h")
         .header("src/picoquic/picoquic/picoquic.h")
         .header("src/picoquic/picoquic/util.h")
         .generate()
