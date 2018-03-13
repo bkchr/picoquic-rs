@@ -5,14 +5,15 @@ extern crate picoquic;
 extern crate timebomb;
 extern crate tokio_core;
 
-use picoquic::{default_verify_certificate, Config, Connection, ConnectionId, Context, ErrorKind,
-               NewStreamFuture, NewStreamHandle, SType, Stream, VerifyCertificate, ConnectionType};
+use picoquic::{default_verify_certificate, Config, Connection, ConnectionId, ConnectionType,
+               Context, ErrorKind, NewStreamFuture, NewStreamHandle, SType, Stream,
+               VerifyCertificate};
 
 use std::net::SocketAddr;
 use std::thread;
 use std::sync::mpsc::channel;
 use std::fmt;
-use std::sync::{Mutex, Arc };
+use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use futures::{Future, Sink, Stream as FStream};
@@ -250,12 +251,11 @@ fn connection_and_stream_closes_on_drop_inner() {
     });
 }
 
-#[test]
-fn open_multiple_streams_sends_data_and_recvs() {
-    let send_data = "hello server";
-    let expected_stream_count = 4;
-
-    let addr = start_server_thread_with_default_config(move |c, h| {
+fn start_server_that_sends_received_data_back<C>(create_config: C) -> SocketAddr
+where
+    C: 'static + Send + FnOnce() -> Config,
+{
+    start_server_thread(create_config, move |c, h| {
         c.for_each(move |c| {
             let h = h.clone();
 
@@ -282,7 +282,15 @@ fn open_multiple_streams_sends_data_and_recvs() {
 
             Ok(())
         })
-    });
+    })
+}
+
+#[test]
+fn open_multiple_streams_sends_data_and_recvs() {
+    let send_data = "hello server";
+    let expected_stream_count = 4;
+
+    let addr = start_server_that_sends_received_data_back(|| get_test_config());
 
     let (mut context, mut evt_loop) = create_context_and_evt_loop_with_default_config();
 
@@ -451,15 +459,15 @@ impl VerifyCertificate for VerifyCertificateImpl {
     }
 }
 
-#[test]
-fn verify_certificate_callback_is_called_on_server_and_client_with_succeed() {
+fn verify_certificate_callback_is_called_on_server_and_client_with_succeed_impl() {
+    let send_data = "hello server";
     let call_counter = VerifyCertificateImpl::new();
 
     let mut client_config = get_test_config();
     client_config.set_verify_certificate_handler(call_counter.clone());
 
     let server_call_counter = call_counter.clone();
-    client_connects_creates_bidirectional_stream_and_sends_data_impl(client_config, move || {
+    let addr = start_server_that_sends_received_data_back(move || {
         let mut server_config = get_test_config();
         server_config.set_verify_certificate_handler(server_call_counter);
         server_config.enable_client_authentication();
@@ -467,5 +475,37 @@ fn verify_certificate_callback_is_called_on_server_and_client_with_succeed() {
         server_config
     });
 
+    let (mut context, mut evt_loop) = create_context_and_evt_loop(client_config);
+
+    let mut con = evt_loop
+        .run(context.new_connection(([127, 0, 0, 1], addr.port()).into()))
+        .expect("creates connection");
+
+    let stream = evt_loop
+        .run(con.new_bidirectional_stream())
+        .expect("creates stream");
+    let stream = evt_loop
+        .run(stream.send(BytesMut::from(send_data)))
+        .unwrap();
+
+    assert_eq!(
+        send_data,
+        &String::from_utf8(
+            evt_loop
+                .run(stream.into_future().map(|(m, _)| m).map_err(|(e, _)| e))
+                .unwrap()
+                .unwrap()
+                .to_vec()
+        ).unwrap()
+    );
+
     assert_eq!(call_counter.get(), 2);
+}
+
+#[test]
+fn verify_certificate_callback_is_called_on_server_and_client_with_succeed() {
+    timebomb::timeout_ms(
+        verify_certificate_callback_is_called_on_server_and_client_with_succeed_impl,
+        10000,
+    );
 }
