@@ -34,7 +34,7 @@ pub enum Type {
     /// The `Connection` was created, because a remote peer created it.
     Incoming,
     /// The `Connection` was created, because the local peer created it.
-    Outgoing
+    Outgoing,
 }
 
 struct ConnectionBuilder {
@@ -172,16 +172,12 @@ impl Connection {
     ) -> Result<(Rc<RefCell<Context>>), Error> {
         let cnx = ffi::Connection::new(quic, peer_addr, current_time)?;
 
-        let (builder, ctx, _) = Self::create_builder(
-            cnx,
-            peer_addr,
-            local_addr,
-            true,
-            keep_alive_interval,
-        );
+        let (builder, ctx, _) =
+            Self::create_builder(cnx, peer_addr, local_addr, true, keep_alive_interval);
 
         // set the builder and the sender as waiting for ready state payload
-        ctx.borrow_mut().set_wait_for_ready_state(builder, created_sender);
+        ctx.borrow_mut()
+            .set_wait_for_ready_state(builder, created_sender);
 
         Ok(ctx)
     }
@@ -352,17 +348,23 @@ impl Context {
     fn process_wait_for_ready_state(&mut self) {
         match self.wait_for_ready_state.take() {
             Some((builder, sender)) => {
-                let id = self.cnx.id().expect("Connection id should be set after reaching the ready state.");
+                let id = self.cnx
+                    .id()
+                    .expect("Connection id should be set after reaching the ready state.");
 
                 let con = builder.build(id);
 
                 let _ = sender.send(con);
-            },
+            }
             None => panic!("connection can only switches once into `ready` state!"),
         };
     }
 
-    fn set_wait_for_ready_state(&mut self, builder: ConnectionBuilder, sender: oneshot::Sender<Connection>) {
+    fn set_wait_for_ready_state(
+        &mut self,
+        builder: ConnectionBuilder,
+        sender: oneshot::Sender<Connection>,
+    ) {
         self.wait_for_ready_state = Some((builder, sender));
     }
 }

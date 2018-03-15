@@ -28,12 +28,15 @@ use openssl::x509::{X509, X509Ref};
 use openssl::x509::store::X509StoreBuilder;
 use openssl::error::ErrorStack;
 
-fn get_test_config() -> Config {
+fn get_test_certs_path() -> String {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    format!("{}/tests/certs/", manifest_dir)
+}
 
+fn get_test_config() -> Config {
     Config::server(
-        &format!("{}/tests/certs/device.test.crt", manifest_dir),
-        &format!("{}/tests/certs/device.key", manifest_dir),
+        &format!("{}device.test.crt", get_test_certs_path()),
+        &format!("{}device.key", get_test_certs_path()),
     )
 }
 
@@ -459,12 +462,17 @@ impl VerifyCertificate for VerifyCertificateImpl {
     }
 }
 
-fn verify_certificate_callback_is_called_on_server_and_client_with_succeed_impl() {
+fn verify_certificate_callback_is_called_and_certificate_is_verified(
+    client_cert: String,
+    client_key: String,
+) {
     let send_data = "hello server";
     let call_counter = VerifyCertificateImpl::new();
 
     let mut client_config = get_test_config();
     client_config.set_verify_certificate_handler(call_counter.clone());
+    client_config.cert_filename = Some( client_cert );
+    client_config.key_filename = Some( client_key );
 
     let server_call_counter = call_counter.clone();
     let addr = start_server_that_sends_received_data_back(move || {
@@ -503,9 +511,14 @@ fn verify_certificate_callback_is_called_on_server_and_client_with_succeed_impl(
 }
 
 #[test]
-fn verify_certificate_callback_is_called_on_server_and_client_with_succeed() {
+fn verify_certificate_callback_is_called_and_certificate_verification_succeeds() {
     timebomb::timeout_ms(
-        verify_certificate_callback_is_called_on_server_and_client_with_succeed_impl,
+        || {
+            verify_certificate_callback_is_called_and_certificate_is_verified(
+                format!("{}device.test.crt", get_test_certs_path()),
+                format!("{}device.key", get_test_certs_path()),
+            )
+        },
         10000,
     );
 }

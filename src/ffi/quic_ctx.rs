@@ -4,9 +4,9 @@ use super::stateless_packet::StatelessPacketIter;
 use config::Config;
 use ffi::verify_certificate;
 
-use picoquic_sys::picoquic::{self, picoquic_create, picoquic_set_client_authentication,
-                             picoquic_free, picoquic_get_next_wake_delay,
-                             picoquic_incoming_packet, picoquic_quic_t, picoquic_stream_data_cb_fn};
+use picoquic_sys::picoquic::{self, picoquic_create, picoquic_free, picoquic_get_next_wake_delay,
+                             picoquic_incoming_packet, picoquic_quic_t,
+                             picoquic_set_client_authentication, picoquic_stream_data_cb_fn};
 
 use std::os::raw::c_void;
 use std::ffi::CString;
