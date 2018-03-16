@@ -111,7 +111,7 @@ impl ContextInner {
 
     /// Iterates over all connections for data that is ready and sends it.
     fn send_connection_packets(&mut self, current_time: u64) {
-        let mut itr = self.quic.connection_iter();
+        let mut itr = self.quic.connection_iter(current_time);
 
         while let Some(con) = itr.next() {
             if self.socket.poll_write().is_not_ready() {
