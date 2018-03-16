@@ -113,8 +113,8 @@ impl QuicCtx {
         self.quic
     }
 
-    pub fn connection_iter(&self, current_time: u64) -> ConnectionIter {
-        ConnectionIter::new(self.quic, current_time)
+    pub fn connection_iter(&self) -> ConnectionIter {
+        ConnectionIter::new(self.quic)
     }
 
     pub fn incoming_data(
