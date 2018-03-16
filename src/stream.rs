@@ -21,6 +21,7 @@ enum Message {
     Close,
     /// Send data.
     Data(BytesMut),
+    Error(Error),
 }
 
 /// A `Stream` can either be unidirectional or bidirectional.
@@ -96,6 +97,7 @@ impl FStream for Stream {
         ) {
             Some(Message::Close) | None => Ok(Ready(None)),
             Some(Message::Data(d)) => Ok(Ready(Some(d))),
+            Some(Message::Error(err)) => Err(err),
         }
     }
 }
@@ -185,6 +187,16 @@ impl Context {
         }
     }
 
+    /// Handle a connection error.
+    pub fn handle_connection_error(&mut self, err: Error) {
+        let _ = self.recv_msg.unbounded_send(Message::Error(err));
+    }
+
+    /// Handle connection close.
+    pub fn handle_connection_close(&mut self) {
+        let _ = self.recv_msg.unbounded_send(Message::Close);
+    }
+
     fn send_data(&mut self, data: BytesMut) {
         if is_unidirectional(self.id) && !self.is_unidirectional_send_allowed() {
             //TODO: maybe we should do more than just printing
@@ -231,6 +243,7 @@ impl Future for Context {
                 Some(Message::Data(data)) => {
                     self.send_data(data);
                 }
+                Some(Message::Error(_)) => {}
                 None => {
                     error!("received `None`, closing!");
                     self.reset();

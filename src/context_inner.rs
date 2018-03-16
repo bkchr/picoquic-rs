@@ -31,7 +31,7 @@ pub struct ContextInner {
     /// Picoquic requires to be woken up to handle resend,
     /// drop of connections(because of inactivity), etc..
     timer: Timeout,
-    recv_connect: UnboundedReceiver<(SocketAddr, oneshot::Sender<Connection>)>,
+    recv_connect: UnboundedReceiver<(SocketAddr, oneshot::Sender<Result<Connection, Error>>)>,
     /// The keep alive interval for client connections
     client_keep_alive_interval: Option<Duration>,
 }
@@ -317,7 +317,7 @@ unsafe extern "C" fn new_connection_callback(
 
 #[derive(Clone)]
 pub struct NewConnectionHandle {
-    send: UnboundedSender<(SocketAddr, oneshot::Sender<Connection>)>,
+    send: UnboundedSender<(SocketAddr, oneshot::Sender<Result<Connection, Error>>)>,
 }
 
 impl NewConnectionHandle {
@@ -331,7 +331,7 @@ impl NewConnectionHandle {
 }
 
 pub struct NewConnectionFuture {
-    recv: oneshot::Receiver<Connection>,
+    recv: oneshot::Receiver<Result<Connection, Error>>,
 }
 
 impl Future for NewConnectionFuture {
@@ -339,6 +339,6 @@ impl Future for NewConnectionFuture {
     type Error = Error;
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        self.recv.poll().map_err(|_| ErrorKind::Unknown.into())
+        try_ready!(self.recv.poll()).map(|v| Ready(v))
     }
 }

@@ -26,6 +26,7 @@ pub type Id = u64;
 enum Message {
     NewStream(Stream),
     Close,
+    Error(Error),
 }
 
 /// A `Connection` can either be `Incoming` or `Outgoing`.
@@ -124,6 +125,7 @@ impl FStream for Connection {
         ) {
             Some(Message::Close) | None => Ok(Ready(None)),
             Some(Message::NewStream(s)) => Ok(Ready(Some(s))),
+            Some(Message::Error(e)) => Err(e),
         }
     }
 }
@@ -168,7 +170,7 @@ impl Connection {
         local_addr: SocketAddr,
         current_time: u64,
         keep_alive_interval: Option<Duration>,
-        created_sender: oneshot::Sender<Connection>,
+        created_sender: oneshot::Sender<Result<Connection, Error>>,
     ) -> Result<(Rc<RefCell<Context>>), Error> {
         let cnx = ffi::Connection::new(quic, peer_addr, current_time)?;
 
@@ -246,7 +248,12 @@ pub(crate) struct Context {
     /// If we create an outgoing connection, we postpone the `Connection` creation to the point
     /// where the connection state is ready. This is necessary, because some information that we
     /// require for the `Connection` object is not available up to this point.
-    wait_for_ready_state: Option<(ConnectionBuilder, oneshot::Sender<Connection>)>,
+    wait_for_ready_state: Option<
+        (
+            ConnectionBuilder,
+            oneshot::Sender<Result<Connection, Error>>,
+        ),
+    >,
     local_addr: SocketAddr,
 }
 
@@ -342,6 +349,9 @@ impl Context {
     fn close(&mut self) {
         self.cnx.close();
         self.closed = true;
+        self.streams
+            .values_mut()
+            .for_each(|s| s.handle_connection_close());
         let _ = self.send_msg.unbounded_send(Message::Close);
     }
 
@@ -354,7 +364,7 @@ impl Context {
 
                 let con = builder.build(id);
 
-                let _ = sender.send(con);
+                let _ = sender.send(Ok(con));
             }
             None => panic!("connection can only switches once into `ready` state!"),
         };
@@ -363,9 +373,27 @@ impl Context {
     fn set_wait_for_ready_state(
         &mut self,
         builder: ConnectionBuilder,
-        sender: oneshot::Sender<Connection>,
+        sender: oneshot::Sender<Result<Connection, Error>>,
     ) {
         self.wait_for_ready_state = Some((builder, sender));
+    }
+
+    /// Checks if the connection had an error and handles it.
+    fn check_and_handle_error(&mut self) {
+        if let Some(err) = self.cnx.error() {
+            self.streams
+                .values_mut()
+                .for_each(|s| s.handle_connection_error(err()));
+
+            match self.wait_for_ready_state.take() {
+                Some((_, send)) => {
+                    let _ = send.send(Err(err()));
+                }
+                None => {
+                    let _ = self.send_msg.unbounded_send(Message::Error(err()));
+                }
+            }
+        }
     }
 }
 
@@ -418,6 +446,7 @@ unsafe extern "C" fn recv_data_callback(
         || event == picoquic::picoquic_call_back_event_t_picoquic_callback_application_close
     {
         // when Rc goes out of scope, it will dereference the Context pointer automatically
+        ctx.borrow_mut().check_and_handle_error();
         ctx.borrow_mut().close();
     } else {
         let data = slice::from_raw_parts(bytes, length as usize);

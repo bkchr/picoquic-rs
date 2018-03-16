@@ -5,6 +5,8 @@ pub use failure::ResultExt;
 
 use bytes::BytesMut;
 
+use futures;
+
 #[derive(Debug)]
 pub struct Error {
     inner: Context<ErrorKind>,
@@ -46,6 +48,12 @@ impl From<Context<ErrorKind>> for Error {
     }
 }
 
+impl From<futures::Canceled> for Error {
+    fn from(_: futures::Canceled) -> Error {
+        ErrorKind::InternalError.into()
+    }
+}
+
 #[derive(Clone, Eq, PartialEq, Debug, Fail)]
 pub enum ErrorKind {
     #[fail(display = "A network error occurred.")]
@@ -60,4 +68,8 @@ pub enum ErrorKind {
     Unknown,
     #[fail(display = "Send failed.")]
     SendError(BytesMut),
+    #[fail(display = "An error occurred in the TLS handshake.")]
+    TLSHandshakeError,
+    #[fail(display = "An internal error occurred.")]
+    InternalError,
 }

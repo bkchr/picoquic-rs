@@ -471,8 +471,8 @@ fn verify_certificate_callback_is_called_and_certificate_is_verified(
 
     let mut client_config = get_test_config();
     client_config.set_verify_certificate_handler(call_counter.clone());
-    client_config.cert_filename = Some( client_cert );
-    client_config.key_filename = Some( client_key );
+    client_config.cert_filename = Some(client_cert);
+    client_config.key_filename = Some(client_key);
 
     let server_call_counter = call_counter.clone();
     let addr = start_server_that_sends_received_data_back(move || {
@@ -512,13 +512,17 @@ fn verify_certificate_callback_is_called_and_certificate_is_verified(
 
 #[test]
 fn verify_certificate_callback_is_called_and_certificate_verification_succeeds() {
-    timebomb::timeout_ms(
-        || {
-            verify_certificate_callback_is_called_and_certificate_is_verified(
-                format!("{}device.test.crt", get_test_certs_path()),
-                format!("{}device.key", get_test_certs_path()),
-            )
-        },
-        10000,
-    );
+    verify_certificate_callback_is_called_and_certificate_is_verified(
+        format!("{}device.test.crt", get_test_certs_path()),
+        format!("{}device.key", get_test_certs_path()),
+    )
+}
+
+#[test]
+#[should_panic(expected = "An error occurred in the TLS handshake.")]
+fn verify_certificate_callback_is_called_and_certificate_verification_fails() {
+    verify_certificate_callback_is_called_and_certificate_is_verified(
+        format!("{}device.invalid.crt", get_test_certs_path()),
+        format!("{}device.key", get_test_certs_path()),
+    )
 }

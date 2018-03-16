@@ -8,13 +8,14 @@ use ConnectionType;
 use picoquic_sys::picoquic::{self, picoquic_close, picoquic_cnx_t, picoquic_create_cnx,
                              picoquic_delete_cnx, picoquic_enable_keep_alive,
                              picoquic_get_cnx_state, picoquic_get_cnxid, picoquic_get_first_cnx,
-                             picoquic_get_local_addr, picoquic_get_next_cnx,
-                             picoquic_get_peer_addr, picoquic_is_client,
+                             picoquic_get_local_addr, picoquic_get_local_error,
+                             picoquic_get_next_cnx, picoquic_get_peer_addr,
+                             picoquic_get_remote_error, picoquic_is_client,
                              picoquic_is_connection_id_null, picoquic_null_connection_id,
                              picoquic_quic_t, picoquic_state_enum_picoquic_state_client_ready,
                              picoquic_state_enum_picoquic_state_disconnected,
                              picoquic_state_enum_picoquic_state_server_ready,
-                             picoquic_val64_connection_id};
+                             picoquic_val64_connection_id, PICOQUIC_TLS_HANDSHAKE_FAILED};
 
 use std::net::SocketAddr;
 use std::ptr;
@@ -195,6 +196,28 @@ impl Connection {
             } else {
                 ConnectionType::Incoming
             }
+        }
+    }
+
+    /// Checks if the connection had an error.
+    /// The returned closure, will always construct the same error.
+    pub fn error(&self) -> Option<Box<Fn() -> Error>> {
+        let error_code = unsafe {
+            let error = picoquic_get_local_error(self.as_ptr());
+            if error != 0 {
+                error
+            } else {
+                picoquic_get_remote_error(self.as_ptr())
+            }
+        };
+
+        if error_code == 0 {
+            None
+        } else {
+            Some(Box::new(move || match error_code as u32 {
+                PICOQUIC_TLS_HANDSHAKE_FAILED => ErrorKind::TLSHandshakeError.into(),
+                _ => ErrorKind::Unknown.into(),
+            }))
         }
     }
 }
