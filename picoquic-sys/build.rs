@@ -7,6 +7,11 @@ use std::env;
 use std::path::PathBuf;
 
 fn main() {
+    let debug = match env::var("DEBUG").ok() {
+        Some(val) => val != "false",
+        None => false,
+    };
+
     // build picotls
     cc::Build::new()
         .flag("-Wno-unused-parameter")
@@ -19,7 +24,8 @@ fn main() {
         .compile("picotls");
 
     // build picoquic
-    cc::Build::new()
+    let mut picoquic = cc::Build::new();
+    picoquic
         .flag("-Wno-unused-parameter")
         .flag("-Wno-sign-compare")
         .flag("-Wno-unused-but-set-variable")
@@ -33,8 +39,13 @@ fn main() {
                 }),
         )
         .include("src/picoquic/picoquic")
-        .include("src/picotls/include/")
-        .compile("picoquic");
+        .include("src/picotls/include/");
+
+    if !debug {
+        picoquic.define("DISABLE_DEBUG_PRINTF", None);
+    }
+
+    picoquic.compile("picoquic");
 
     // generate the rust bindings for the picoquic
     let bindings = bindgen::Builder::default()
