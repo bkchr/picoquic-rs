@@ -5,14 +5,14 @@ use stream;
 use connection;
 use ConnectionType;
 
-use picoquic_sys::picoquic::{self, picoquic_close, picoquic_cnx_t, picoquic_create_cnx,
+use picoquic_sys::picoquic::{self, picoquic_close, picoquic_cnx_t, picoquic_create_client_cnx,
                              picoquic_delete_cnx, picoquic_enable_keep_alive,
                              picoquic_get_cnx_state, picoquic_get_cnxid, picoquic_get_first_cnx,
                              picoquic_get_local_addr, picoquic_get_local_error,
                              picoquic_get_next_cnx, picoquic_get_peer_addr,
                              picoquic_get_remote_error, picoquic_is_client,
-                             picoquic_is_connection_id_null, picoquic_null_connection_id,
-                             picoquic_quic_t, picoquic_state_enum_picoquic_state_client_ready,
+                             picoquic_is_connection_id_null, picoquic_quic_t,
+                             picoquic_state_enum_picoquic_state_client_ready,
                              picoquic_state_enum_picoquic_state_disconnected,
                              picoquic_state_enum_picoquic_state_server_ready,
                              picoquic_val64_connection_id, PICOQUIC_TLS_HANDSHAKE_FAILED};
@@ -42,15 +42,15 @@ impl Connection {
         let server_addr = SockAddr::from(server_addr);
 
         let cnx = unsafe {
-            picoquic_create_cnx(
+            picoquic_create_client_cnx(
                 quic.as_ptr(),
-                picoquic_null_connection_id,
                 server_addr.as_ptr() as *mut picoquic::sockaddr,
                 current_time,
                 0,
                 ptr::null_mut(),
                 ptr::null_mut(),
-                1,
+                None,
+                ptr::null_mut(),
             )
         };
 

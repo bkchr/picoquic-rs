@@ -4,9 +4,10 @@ use super::stateless_packet::StatelessPacketIter;
 use config::Config;
 use ffi::verify_certificate;
 
-use picoquic_sys::picoquic::{self, picoquic_create, picoquic_free, picoquic_get_next_wake_delay,
-                             picoquic_incoming_packet, picoquic_quic_t,
-                             picoquic_set_client_authentication, picoquic_stream_data_cb_fn};
+use picoquic_sys::picoquic::{self, picoquic_create, picoquic_current_time, picoquic_free,
+                             picoquic_get_next_wake_delay, picoquic_incoming_packet,
+                             picoquic_quic_t, picoquic_set_client_authentication,
+                             picoquic_stream_data_cb_fn};
 
 use std::os::raw::c_void;
 use std::ffi::CString;
@@ -21,7 +22,6 @@ use libc;
 pub struct QuicCtx {
     quic: *mut picoquic_quic_t,
     max_delay: Duration,
-    clock: Instant,
 }
 
 impl QuicCtx {
@@ -56,8 +56,6 @@ impl QuicCtx {
             .map(|v| v.as_mut_ptr())
             .unwrap_or_else(|| ptr::null_mut());
 
-        let clock = Instant::now();
-
         let quic = unsafe {
             picoquic_create(
                 connection_buckets,
@@ -69,7 +67,7 @@ impl QuicCtx {
                 None,
                 ptr::null_mut(),
                 reset_seed,
-                clock.elapsed().as_micro_seconds(),
+                picoquic_current_time(),
                 ptr::null_mut(),
                 ptr::null(),
                 ptr::null(),
@@ -81,7 +79,6 @@ impl QuicCtx {
         let quic = QuicCtx {
             quic,
             max_delay: Duration::from_secs(10),
-            clock,
         };
 
         if config.client_authentication {
@@ -105,7 +102,6 @@ impl QuicCtx {
         QuicCtx {
             quic: ptr::null_mut(),
             max_delay: Duration::from_secs(10),
-            clock: Instant::now(),
         }
     }
 
@@ -169,9 +165,8 @@ impl QuicCtx {
     }
 
     /// Returns the current time in micro seconds for Picoquic.
-    /// The time represents the elapsed time since the creation of this context.
     pub fn get_current_time(&self) -> u64 {
-        self.clock.elapsed().as_micro_seconds()
+        unsafe { picoquic_current_time() }
     }
 }
 
