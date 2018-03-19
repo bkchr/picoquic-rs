@@ -1,13 +1,14 @@
 use error::*;
 use super::connection::ConnectionIter;
 use super::stateless_packet::StatelessPacketIter;
-use config::Config;
+use config::{Config, FileFormat};
 use ffi::verify_certificate;
 
 use picoquic_sys::picoquic::{self, picoquic_create, picoquic_current_time, picoquic_free,
                              picoquic_get_next_wake_delay, picoquic_incoming_packet,
                              picoquic_quic_t, picoquic_set_client_authentication,
-                             picoquic_stream_data_cb_fn};
+                             picoquic_set_tls_certificate_chain, picoquic_set_tls_key,
+                             picoquic_stream_data_cb_fn, ptls_iovec_t};
 
 use std::os::raw::c_void;
 use std::ffi::CString;
@@ -15,10 +16,14 @@ use std::ptr;
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 use std::path::PathBuf;
+use std::mem;
 
 use socket2::SockAddr;
 
 use libc;
+
+use openssl::x509::X509;
+use openssl::pkey::PKey;
 
 pub struct QuicCtx {
     quic: *mut picoquic_quic_t,
@@ -83,7 +88,7 @@ impl QuicCtx {
         };
         assert!(!quic.is_null());
 
-        let quic = QuicCtx {
+        let mut quic = QuicCtx {
             quic,
             max_delay: Duration::from_secs(10),
         };
@@ -92,6 +97,14 @@ impl QuicCtx {
             unsafe {
                 picoquic_set_client_authentication(quic.as_ptr(), 1);
             }
+        }
+
+        if let Some((format, chain)) = config.cert_chain {
+            quic.set_tls_cert_chain(chain, format)?;
+        }
+
+        if let Some((format, key)) = config.key {
+            quic.set_tls_key(key, format)?;
         }
 
         if let Some(handler) = config.verify_certificate_handler.take() {
@@ -174,6 +187,62 @@ impl QuicCtx {
     /// Returns the current time in micro seconds for Picoquic.
     pub fn get_current_time(&self) -> u64 {
         unsafe { picoquic_current_time() }
+    }
+
+    /// Sets the tls certificate chain.
+    fn set_tls_cert_chain(&mut self, chain: Vec<Vec<u8>>, format: FileFormat) -> Result<(), Error> {
+        let certs = match format {
+            FileFormat::DER => chain,
+            FileFormat::PEM => {
+                let mut certs = Vec::with_capacity(chain.len());
+                for cert in chain {
+                    certs.push(X509::from_pem(&cert)?.to_der()?);
+                }
+                certs
+            }
+        };
+
+        let mut certs = certs
+            .into_iter()
+            .map(|mut cert| {
+                let len = cert.len();
+                let base = cert.as_mut_ptr();
+                mem::forget(cert);
+
+                ptls_iovec_t { len, base }
+            })
+            .collect::<Vec<_>>();
+
+        let len = certs.len();
+        let certs_ptr = certs.as_mut_ptr();
+        mem::forget(certs);
+
+        unsafe {
+            picoquic_set_tls_certificate_chain(self.as_ptr(), certs_ptr, len);
+        }
+
+        Ok(())
+    }
+
+    /// Sets the tls key.
+    fn set_tls_key(&mut self, key: Vec<u8>, format: FileFormat) -> Result<(), Error> {
+        let mut key = match format {
+            FileFormat::DER => key,
+            FileFormat::PEM => PKey::private_key_from_pem(&key)?.private_key_to_der()?,
+        };
+
+        let len = key.len();
+        let key_ptr = key.as_mut_ptr();
+
+        unsafe {
+            let res = picoquic_set_tls_key(self.as_ptr(), key_ptr, len);
+
+            if res == 0 {
+                Ok(())
+            } else {
+                Err(ErrorKind::Unknown.into())
+            }
+        }
     }
 }
 

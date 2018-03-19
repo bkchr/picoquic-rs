@@ -6,7 +6,7 @@ extern crate timebomb;
 extern crate tokio_core;
 
 use picoquic::{default_verify_certificate, Config, Connection, ConnectionId, ConnectionType,
-               Context, ErrorKind, NewStreamFuture, NewStreamHandle, SType, Stream,
+               Context, ErrorKind, FileFormat, NewStreamFuture, NewStreamHandle, SType, Stream,
                VerifyCertificate};
 
 use std::net::SocketAddr;
@@ -525,4 +525,19 @@ fn verify_certificate_callback_is_called_and_certificate_verification_fails() {
         format!("{}device.invalid.crt", get_test_certs_path()),
         format!("{}device.key", get_test_certs_path()),
     )
+}
+
+#[test]
+fn set_certificate_and_key_from_memory() {
+    client_connects_creates_bidirectional_stream_and_sends_data_impl(get_test_config(), || {
+        let cert = include_bytes!("certs/device.test.crt");
+        let key = include_bytes!("certs/device.key");
+
+        let mut config = get_test_config();
+        config.cert_chain_filename = None;
+        config.key_filename = None;
+        config.set_cert_chain(vec![cert.to_vec()], FileFormat::PEM);
+        config.set_key(key.to_vec(), FileFormat::PEM);
+        config
+    });
 }

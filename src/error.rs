@@ -8,6 +8,8 @@ use bytes::BytesMut;
 
 use futures;
 
+use openssl;
+
 #[derive(Debug)]
 pub struct Error {
     inner: Context<ErrorKind>,
@@ -61,6 +63,12 @@ impl From<ffi::NulError> for Error {
     }
 }
 
+impl From<openssl::error::ErrorStack> for Error {
+    fn from(_: openssl::error::ErrorStack) -> Error {
+        ErrorKind::OpenSSLError.into()
+    }
+}
+
 #[derive(Clone, Eq, PartialEq, Debug, Fail)]
 pub enum ErrorKind {
     #[fail(display = "A network error occurred.")]
@@ -81,4 +89,6 @@ pub enum ErrorKind {
     InternalError,
     #[fail(display = "A string contains none unicode symbols.")]
     NoneUnicode,
+    #[fail(display = "An OpenSSL error occurred.")]
+    OpenSSLError,
 }
