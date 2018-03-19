@@ -14,7 +14,7 @@ use futures::{Future, Sink, Stream};
 fn main() {
     let mut evt_loop = Core::new().unwrap();
 
-    let config = Config::client();
+    let config = Config::new();
 
     let mut client = Context::new(&([0, 0, 0, 0], 0).into(), &evt_loop.handle(), config).unwrap();
 

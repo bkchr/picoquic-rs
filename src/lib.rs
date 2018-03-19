@@ -41,7 +41,7 @@ use futures::{Future, Sink, Stream};
 fn main() {
     let mut evt_loop = Core::new().unwrap();
 
-    let config = Config::client();
+    let config = Config::new();
 
     let mut client = Context::new(&([0, 0, 0, 0], 0).into(), &evt_loop.handle(), config).unwrap();
 
@@ -88,10 +88,9 @@ fn main() {
 
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
 
-    let config = Config::server(
-        &format!("{}/examples/cert.pem", manifest_dir),
-        &format!("{}/examples/key.pem", manifest_dir),
-    );
+    let mut config = Config::new();
+    config.set_cert_chain_filename(format!("{}/examples/cert.pem", manifest_dir));
+    config.set_key_filename(format!("{}/examples/key.pem", manifest_dir));
 
     let server = Context::new(&([0, 0, 0, 0], 22222).into(), &evt_loop.handle(), config).unwrap();
 
@@ -182,6 +181,6 @@ pub use self::context_inner::{NewConnectionFuture, NewConnectionHandle};
 pub use self::connection::{Connection, Id as ConnectionId, NewStreamFuture, NewStreamHandle,
                            Type as ConnectionType};
 pub use self::stream::{Stream, Type as SType};
-pub use self::config::{Config, Role};
+pub use self::config::{Config, FileFormat, Role};
 pub use self::error::{Error, ErrorKind};
 pub use self::verify_certificate::{default_verify_certificate, VerifyCertificate};

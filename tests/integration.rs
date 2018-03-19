@@ -34,10 +34,10 @@ fn get_test_certs_path() -> String {
 }
 
 fn get_test_config() -> Config {
-    Config::server(
-        &format!("{}device.test.crt", get_test_certs_path()),
-        &format!("{}device.key", get_test_certs_path()),
-    )
+    let mut config = Config::new();
+    config.set_cert_chain_filename(format!("{}device.test.crt", get_test_certs_path()));
+    config.set_key_filename(format!("{}device.key", get_test_certs_path()));
+    config
 }
 
 fn create_context_and_evt_loop_with_default_config() -> (Context, Core) {
@@ -471,8 +471,8 @@ fn verify_certificate_callback_is_called_and_certificate_is_verified(
 
     let mut client_config = get_test_config();
     client_config.set_verify_certificate_handler(call_counter.clone());
-    client_config.cert_filename = Some(client_cert);
-    client_config.key_filename = Some(client_key);
+    client_config.set_cert_chain_filename(client_cert);
+    client_config.set_key_filename(client_key);
 
     let server_call_counter = call_counter.clone();
     let addr = start_server_that_sends_received_data_back(move || {

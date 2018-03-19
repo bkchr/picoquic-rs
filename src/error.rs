@@ -1,4 +1,5 @@
 use std::fmt;
+use std::ffi;
 
 use failure::{Backtrace, Context, Fail};
 pub use failure::ResultExt;
@@ -54,12 +55,18 @@ impl From<futures::Canceled> for Error {
     }
 }
 
+impl From<ffi::NulError> for Error {
+    fn from(_: ffi::NulError) -> Error {
+        ErrorKind::FFIError.into()
+    }
+}
+
 #[derive(Clone, Eq, PartialEq, Debug, Fail)]
 pub enum ErrorKind {
     #[fail(display = "A network error occurred.")]
     NetworkError,
-    #[fail(display = "An error occurred while creating a `CString` type.")]
-    CStringError,
+    #[fail(display = "A ffi error occurred.")]
+    FFIError,
     #[fail(display = "Could not allocate new memory.")]
     OutOfMemoryError,
     #[fail(display = "Disconnected.")]
@@ -72,4 +79,6 @@ pub enum ErrorKind {
     TLSHandshakeError,
     #[fail(display = "An internal error occurred.")]
     InternalError,
+    #[fail(display = "A string contains none unicode symbols.")]
+    NoneUnicode,
 }

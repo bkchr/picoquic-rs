@@ -16,10 +16,9 @@ fn main() {
 
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
 
-    let config = Config::server(
-        &format!("{}/examples/cert.pem", manifest_dir),
-        &format!("{}/examples/key.pem", manifest_dir),
-    );
+    let mut config = Config::new();
+    config.set_cert_chain_filename(format!("{}/examples/cert.pem", manifest_dir));
+    config.set_key_filename(format!("{}/examples/key.pem", manifest_dir));
 
     let server = Context::new(&([0, 0, 0, 0], 22222).into(), &evt_loop.handle(), config).unwrap();
 

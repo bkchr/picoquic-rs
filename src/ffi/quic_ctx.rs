@@ -14,6 +14,7 @@ use std::ffi::CString;
 use std::ptr;
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};
+use std::path::PathBuf;
 
 use socket2::SockAddr;
 
@@ -34,21 +35,21 @@ impl QuicCtx {
         // The buckets itself are a linked list
         let connection_buckets = 16;
 
-        let cert_filename = config.cert_filename.map(CString::new);
-        let key_filename = config.key_filename.map(CString::new);
-
-        fn unpack_option_cstring<E>(data: &Option<Result<CString, E>>) -> Result<*const i8, Error> {
-            match *data {
-                Some(ref v) => match v {
-                    &Ok(ref s) => Ok(s.as_ptr()),
-                    &Err(_) => Err(ErrorKind::CStringError.into()),
-                },
-                None => Ok(ptr::null()),
+        fn create_cstring(path: Option<PathBuf>) -> Result<Option<CString>, Error> {
+            match path {
+                Some(p) => {
+                    let string = match p.into_os_string().into_string() {
+                        Ok(string) => string,
+                        Err(_) => return Err(ErrorKind::NoneUnicode.into()),
+                    };
+                    Ok(Some(CString::new(string)?))
+                }
+                None => Ok(None),
             }
         }
 
-        let cert_filename_ptr = unpack_option_cstring(&cert_filename)?;
-        let key_filename_ptr = unpack_option_cstring(&key_filename)?;
+        let cert_filename = create_cstring(config.cert_chain_filename)?;
+        let key_filename = create_cstring(config.key_filename)?;
 
         let reset_seed = config
             .reset_seed
@@ -59,8 +60,14 @@ impl QuicCtx {
         let quic = unsafe {
             picoquic_create(
                 connection_buckets,
-                cert_filename_ptr,
-                key_filename_ptr,
+                cert_filename
+                    .as_ref()
+                    .map(|v| v.as_ptr())
+                    .unwrap_or_else(|| ptr::null_mut()),
+                key_filename
+                    .as_ref()
+                    .map(|v| v.as_ptr())
+                    .unwrap_or_else(|| ptr::null_mut()),
                 ptr::null(),
                 default_callback,
                 default_ctx,
