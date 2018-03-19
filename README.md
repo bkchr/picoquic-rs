@@ -29,18 +29,18 @@ extern crate futures;
 extern crate picoquic;
 extern crate tokio_core;
 
-use picoquic::{Config, Context, SMessage};
+use picoquic::{Config, Context};
 
 use tokio_core::reactor::Core;
 
-use bytes::Bytes;
+use bytes::BytesMut;
 
 use futures::{Future, Sink, Stream};
 
 fn main() {
     let mut evt_loop = Core::new().unwrap();
 
-    let config = Config::client();
+    let config = Config::new();
 
     let mut client = Context::new(&([0, 0, 0, 0], 0).into(), &evt_loop.handle(), config).unwrap();
 
@@ -51,7 +51,7 @@ fn main() {
     let stream = evt_loop.run(con.new_bidirectional_stream()).unwrap();
 
     let stream = evt_loop
-        .run(stream.send(SMessage::Data(Bytes::from("hello server"))))
+        .run(stream.send(BytesMut::from("hello server")))
         .unwrap();
 
     let answer = evt_loop
@@ -74,23 +74,22 @@ extern crate futures;
 extern crate picoquic;
 extern crate tokio_core;
 
-use picoquic::{CMessage, Config, Context, SMessage};
+use picoquic::{Config, Context};
 
 use tokio_core::reactor::Core;
 
 use futures::{Future, Sink, Stream};
 
-use bytes::Bytes;
+use bytes::BytesMut;
 
 fn main() {
     let mut evt_loop = Core::new().unwrap();
 
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
 
-    let config = Config::server(
-        &format!("{}/examples/cert.pem", manifest_dir),
-        &format!("{}/examples/key.pem", manifest_dir),
-    );
+    let mut config = Config::new();
+    config.set_cert_chain_filename(format!("{}/examples/cert.pem", manifest_dir));
+    config.set_key_filename(format!("{}/examples/key.pem", manifest_dir));
 
     let server = Context::new(&([0, 0, 0, 0], 22222).into(), &evt_loop.handle(), config).unwrap();
 
@@ -100,26 +99,20 @@ fn main() {
 
     evt_loop
         .run(server.for_each(|c| {
+            let handle = handle.clone();
+
             println!("New connection from: {}", c.peer_addr());
 
-            let handle = handle.clone();
             handle.clone().spawn(c.for_each(move |s| {
-                // Let's see what we got
-                let s = match s {
-                    CMessage::NewStream(s) => s,
-                    _ => return Ok(()),
-                };
-
                 // We print the received message and sent a new one, after that we collect all
                 // remaining messages. The collect is a "hack" that prevents that the `Stream` is
                 // dropped to early.
-                handle.spawn(
+                handle.clone().spawn(
                     s.into_future()
                         .map_err(|_| ())
                         .and_then(|(m, s)| {
                             println!("Got: {:?}", m);
-                            s.send(SMessage::Data(Bytes::from("hello client")))
-                                .map_err(|_| ())
+                            s.send(BytesMut::from("hello client")).map_err(|_| ())
                         })
                         .and_then(|s| s.collect().map_err(|_| ()))
                         .map(|_| ()),
