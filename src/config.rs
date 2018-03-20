@@ -7,12 +7,14 @@ use std::path::PathBuf;
 /// A role can either be `Server` or `Client`.
 /// The role can be used to define which side is responsible for certain tasks, like sending
 /// keep alive packages.
+#[derive(Clone, Copy, PartialEq)]
 pub enum Role {
     Server,
     Client,
 }
 
 /// The file format of a certificate/private key.
+#[derive(Clone, Copy, PartialEq)]
 pub enum FileFormat {
     PEM,
     DER,
@@ -56,6 +58,22 @@ impl Config {
             keep_alive_interval: None,
             keep_alive_sender: Role::Client,
             client_authentication: false,
+            verify_certificate_handler: None,
+        }
+    }
+
+    /// Will create a new instance by cloning another `Config`.
+    /// The `verify_certificate_handler` will be set to `None` as it does not support to be cloned.
+    pub fn clone_from(other: &Config) -> Config {
+        Config {
+            cert_chain_filename: other.cert_chain_filename.as_ref().cloned(),
+            cert_chain: other.cert_chain.as_ref().cloned(),
+            key_filename: other.key_filename.as_ref().cloned(),
+            key: other.key.as_ref().cloned(),
+            reset_seed: other.reset_seed.as_ref().cloned(),
+            keep_alive_interval: other.keep_alive_interval.as_ref().cloned(),
+            keep_alive_sender: other.keep_alive_sender,
+            client_authentication: other.client_authentication,
             verify_certificate_handler: None,
         }
     }
