@@ -1,23 +1,23 @@
 use error::*;
-use stream::{self, Stream};
 use ffi::{self, QuicCtx};
+use stream::{self, Stream};
 
 use picoquic_sys::picoquic::{self, picoquic_call_back_event_t, picoquic_cnx_t,
                              picoquic_set_callback};
 
+use futures::Async::{NotReady, Ready};
 use futures::sync::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
 use futures::sync::oneshot;
 use futures::{Future, Poll, Stream as FStream};
-use futures::Async::{NotReady, Ready};
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry::{Occupied, Vacant};
-use std::os::raw::c_void;
 use std::mem;
-use std::rc::Rc;
-use std::cell::RefCell;
-use std::slice;
 use std::net::SocketAddr;
+use std::os::raw::c_void;
+use std::rc::Rc;
+use std::slice;
 use std::time::Duration;
 
 pub type Id = u64;
@@ -248,12 +248,10 @@ pub(crate) struct Context {
     /// If we create an outgoing connection, we postpone the `Connection` creation to the point
     /// where the connection state is ready. This is necessary, because some information that we
     /// require for the `Connection` object is not available up to this point.
-    wait_for_ready_state: Option<
-        (
-            ConnectionBuilder,
-            oneshot::Sender<Result<Connection, Error>>,
-        ),
-    >,
+    wait_for_ready_state: Option<(
+        ConnectionBuilder,
+        oneshot::Sender<Result<Connection, Error>>,
+    )>,
     local_addr: SocketAddr,
 }
 

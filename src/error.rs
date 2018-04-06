@@ -1,8 +1,8 @@
-use std::fmt;
 use std::ffi;
+use std::fmt;
 
-use failure::{Backtrace, Context, Fail};
 pub use failure::ResultExt;
+use failure::{Backtrace, Context, Fail};
 
 use bytes::BytesMut;
 

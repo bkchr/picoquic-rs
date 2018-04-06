@@ -1,13 +1,13 @@
 use error::*;
+use ffi;
 use picoquic_sys::picoquic::{self, picoquic_add_to_stream, picoquic_call_back_event_t,
                              picoquic_reset_stream};
-use ffi;
 
 use bytes::BytesMut;
 
-use futures::{Future, Poll, Sink, StartSend, Stream as FStream};
 use futures::Async::Ready;
 use futures::sync::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
+use futures::{Future, Poll, Sink, StartSend, Stream as FStream};
 
 use std::net::SocketAddr;
 

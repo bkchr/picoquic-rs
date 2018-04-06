@@ -1,8 +1,8 @@
 use super::VerifyCertificate;
 use picoquic_sys::picoquic::PICOQUIC_RESET_SECRET_SIZE;
 
-use std::time::Duration;
 use std::path::PathBuf;
+use std::time::Duration;
 
 /// A role can either be `Server` or `Client`.
 /// The role can be used to define which side is responsible for certain tasks, like sending

@@ -1,7 +1,7 @@
-use error::*;
 use super::connection::ConnectionIter;
 use super::stateless_packet::StatelessPacketIter;
 use config::{Config, FileFormat};
+use error::*;
 use ffi::verify_certificate;
 
 use picoquic_sys::picoquic::{self, picoquic_create, picoquic_current_time, picoquic_free,
@@ -10,20 +10,20 @@ use picoquic_sys::picoquic::{self, picoquic_create, picoquic_current_time, picoq
                              picoquic_set_tls_certificate_chain, picoquic_set_tls_key,
                              picoquic_stream_data_cb_fn, ptls_iovec_t};
 
-use std::os::raw::c_void;
 use std::ffi::CString;
-use std::ptr;
-use std::net::SocketAddr;
-use std::time::{Duration, Instant};
-use std::path::PathBuf;
 use std::mem;
+use std::net::SocketAddr;
+use std::os::raw::c_void;
+use std::path::PathBuf;
+use std::ptr;
+use std::time::{Duration, Instant};
 
 use socket2::SockAddr;
 
 use libc;
 
-use openssl::x509::X509;
 use openssl::pkey::PKey;
+use openssl::x509::X509;
 
 pub struct QuicCtx {
     quic: *mut picoquic_quic_t,

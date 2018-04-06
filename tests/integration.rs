@@ -9,24 +9,24 @@ use picoquic::{default_verify_certificate, Config, Connection, ConnectionId, Con
                Context, ErrorKind, FileFormat, NewStreamFuture, NewStreamHandle, SType, Stream,
                VerifyCertificate};
 
-use std::net::SocketAddr;
-use std::thread;
-use std::sync::mpsc::channel;
 use std::fmt;
-use std::sync::{Arc, Mutex};
+use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::mpsc::channel;
+use std::sync::{Arc, Mutex};
+use std::thread;
 
-use futures::{Future, Sink, Stream as FStream};
 use futures::sync::mpsc::unbounded;
+use futures::{Future, Sink, Stream as FStream};
 
 use tokio_core::reactor::{Core, Handle};
 
 use bytes::BytesMut;
 
-use openssl::stack::StackRef;
-use openssl::x509::{X509, X509Ref};
-use openssl::x509::store::X509StoreBuilder;
 use openssl::error::ErrorStack;
+use openssl::stack::StackRef;
+use openssl::x509::store::X509StoreBuilder;
+use openssl::x509::{X509, X509Ref};
 
 fn get_test_certs_path() -> String {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
@@ -322,7 +322,7 @@ fn open_multiple_streams_sends_data_and_recvs() {
                     .run(stream.into_future().map(|(m, _)| m).map_err(|(e, _)| e))
                     .unwrap()
                     .unwrap()
-                    .to_vec()
+                    .to_vec(),
             ).unwrap()
         );
     }

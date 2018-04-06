@@ -1,26 +1,26 @@
-use error::*;
-use stream;
-use connection::{self, Connection};
 use config::{Config, Role};
+use connection::{self, Connection};
+use error::*;
 use ffi::QuicCtx;
+use stream;
 
 use picoquic_sys::picoquic::{picoquic_call_back_event_t, picoquic_cnx_t, PICOQUIC_MAX_PACKET_SIZE};
 
+use std::cell::RefCell;
+use std::io;
+use std::mem;
 use std::net::SocketAddr;
 use std::os::raw::c_void;
 use std::rc::Rc;
-use std::mem;
-use std::cell::RefCell;
-use std::io;
 use std::time::{Duration, Instant};
 
 use tokio_core::net::UdpSocket;
 use tokio_core::reactor::{Handle, Timeout};
 
+use futures::Async::{NotReady, Ready};
 use futures::sync::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
 use futures::sync::oneshot;
 use futures::{task, Future, Poll, Stream};
-use futures::Async::{NotReady, Ready};
 
 pub struct ContextInner {
     socket: UdpSocket,

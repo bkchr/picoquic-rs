@@ -1,9 +1,9 @@
-use error::*;
 use super::packet::Packet;
 use super::quic_ctx::{socket_addr_from_c, MicroSeconds, QuicCtx};
-use stream;
-use connection;
 use ConnectionType;
+use connection;
+use error::*;
+use stream;
 
 use picoquic_sys::picoquic::{self, picoquic_close, picoquic_cnx_t, picoquic_create_client_cnx,
                              picoquic_delete_cnx, picoquic_enable_keep_alive,

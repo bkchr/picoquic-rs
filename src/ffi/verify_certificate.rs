@@ -1,6 +1,6 @@
 use error::*;
-use verify_certificate::VerifyCertificate;
 use ffi::{Connection, QuicCtx};
+use verify_certificate::VerifyCertificate;
 
 use picoquic_sys::picoquic::{picoquic_cnx_t, picoquic_set_verify_certificate_callback,
                              picoquic_verify_sign_cb_fn, ptls_iovec_t, PTLS_ALERT_BAD_CERTIFICATE,
@@ -8,17 +8,17 @@ use picoquic_sys::picoquic::{picoquic_cnx_t, picoquic_set_verify_certificate_cal
                              PTLS_ALERT_CERTIFICATE_UNKNOWN, PTLS_ALERT_DECRYPT_ERROR,
                              PTLS_ERROR_LIBRARY, PTLS_ERROR_NO_MEMORY};
 
+use std::mem;
 use std::os::raw::{c_int, c_void};
 use std::slice;
-use std::mem;
 
 use openssl::error::ErrorStack;
-use openssl::x509::X509;
 use openssl::hash::MessageDigest;
+use openssl::pkey::{Id, PKey, Public};
+use openssl::rsa::Padding;
 use openssl::sign::{RsaPssSaltlen, Verifier};
 use openssl::stack::Stack;
-use openssl::pkey::{PKey, Public, Id};
-use openssl::rsa::Padding;
+use openssl::x509::X509;
 
 use openssl_sys::{X509_V_ERR_CERT_HAS_EXPIRED, X509_V_ERR_CERT_REVOKED, X509_V_ERR_OUT_OF_MEM};
 
@@ -147,7 +147,9 @@ fn verify_certificate_callback_impl(
 
     match handler.verify(id, cnx.con_type(), &cert, &chain) {
         Ok(true) => {}
-        Ok(false) => { return PTLS_ALERT_CERTIFICATE_UNKNOWN; }
+        Ok(false) => {
+            return PTLS_ALERT_CERTIFICATE_UNKNOWN;
+        }
         Err(e) => return ssl_error_to_error_code(e),
     };
 

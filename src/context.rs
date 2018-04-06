@@ -1,7 +1,7 @@
-use error::*;
-use connection::Connection;
 use config::Config;
+use connection::Connection;
 use context_inner::{ContextInner, NewConnectionFuture, NewConnectionHandle};
+use error::*;
 
 use std::net::SocketAddr;
 

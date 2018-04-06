@@ -4,10 +4,10 @@ use picoquic_sys::picoquic::{self, picoquic_delete_stateless_packet,
                              picoquic_stateless_packet_t};
 
 use std::iter::Iterator;
-use std::mem;
-use std::slice;
-use std::net::SocketAddr;
 use std::marker::PhantomData;
+use std::mem;
+use std::net::SocketAddr;
+use std::slice;
 
 use libc;
 

@@ -167,20 +167,20 @@ extern crate socket2;
 #[macro_use]
 extern crate tokio_core;
 
-mod verify_certificate;
+mod config;
 mod connection;
-mod error;
 mod context;
 mod context_inner;
-mod stream;
-mod config;
+mod error;
 mod ffi;
+mod stream;
+mod verify_certificate;
 
-pub use self::context::Context;
-pub use self::context_inner::{NewConnectionFuture, NewConnectionHandle};
+pub use self::config::{Config, FileFormat, Role};
 pub use self::connection::{Connection, Id as ConnectionId, NewStreamFuture, NewStreamHandle,
                            Type as ConnectionType};
-pub use self::stream::{Stream, Type as SType};
-pub use self::config::{Config, FileFormat, Role};
+pub use self::context::Context;
+pub use self::context_inner::{NewConnectionFuture, NewConnectionHandle};
 pub use self::error::{Error, ErrorKind};
+pub use self::stream::{Stream, Type as SType};
 pub use self::verify_certificate::{default_verify_certificate, VerifyCertificate};
