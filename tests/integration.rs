@@ -438,7 +438,7 @@ impl VerifyCertificate for VerifyCertificateImpl {
         _: ConnectionType,
         cert: &X509Ref,
         chain: &StackRef<X509>,
-    ) -> Result<(), ErrorStack> {
+    ) -> Result<bool, ErrorStack> {
         let ca_cert = include_bytes!("certs/ca.crt");
         let ca_cert = X509::from_pem(ca_cert)?;
 

@@ -24,8 +24,8 @@ bytes = "0.4"
 log = "0.4"
 libc = "0.2"
 socket2 = "0.3"
-openssl = { git = "https://github.com/bkchr/rust-openssl.git", branch = "picoquic_rs" }
-openssl-sys = { git = "https://github.com/bkchr/rust-openssl.git", branch = "picoquic_rs" }
+openssl = "^0.10.6"
+openssl-sys = "^0.9.28"
 
 [dependencies.picoquic-sys]
 path = "./picoquic-sys/"

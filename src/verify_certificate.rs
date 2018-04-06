@@ -20,7 +20,7 @@ pub trait VerifyCertificate {
         connection_type: ConnectionType,
         cert: &X509Ref,
         chain: &StackRef<X509>,
-    ) -> Result<(), ErrorStack>;
+    ) -> Result<bool, ErrorStack>;
 }
 
 /// Provides a default implementation for verifying a certificate and certificates chain against
@@ -29,7 +29,7 @@ pub fn default_verify_certificate(
     cert: &X509Ref,
     chain: &StackRef<X509>,
     store: &X509StoreRef,
-) -> Result<(), ErrorStack> {
+) -> Result<bool, ErrorStack> {
     let mut context = X509StoreContext::new()?;
-    context.verify_cert(store, cert, chain)
+    context.init(store, cert, chain, |c| c.verify_cert())
 }

@@ -13,7 +13,7 @@ Use the `picoquic` crate.
 """
 
 [dependencies]
-openssl-sys = { git = "https://github.com/bkchr/rust-openssl.git", branch = "picoquic_rs" }
+openssl-sys = "^0.9.28"
 
 [build-dependencies]
 cmake = "0.1"

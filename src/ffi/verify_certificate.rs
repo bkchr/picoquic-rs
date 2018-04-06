@@ -15,9 +15,9 @@ use std::mem;
 use openssl::error::ErrorStack;
 use openssl::x509::X509;
 use openssl::hash::MessageDigest;
-use openssl::sign::Verifier;
+use openssl::sign::{RsaPssSaltlen, Verifier};
 use openssl::stack::Stack;
-use openssl::pkey::{PKey, Public, OID};
+use openssl::pkey::{PKey, Public, Id};
 use openssl::rsa::Padding;
 
 use openssl_sys::{X509_V_ERR_CERT_HAS_EXPIRED, X509_V_ERR_CERT_REVOKED, X509_V_ERR_OUT_OF_MEM};
@@ -69,12 +69,12 @@ unsafe extern "C" fn verify_sign_callback(
         Err(_) => return PTLS_ERROR_LIBRARY as i32,
     };
 
-    if pkey.get_id() == Some(OID::RSA) {
+    if pkey.id() == Id::RSA {
         if let Err(_) = verifier.set_rsa_padding(Padding::PKCS1_PSS) {
             return PTLS_ERROR_LIBRARY as i32;
         }
 
-        if let Err(_) = verifier.set_rsa_pss_saltlen(-1) {
+        if let Err(_) = verifier.set_rsa_pss_saltlen(RsaPssSaltlen::DIGEST_LENGTH) {
             return PTLS_ERROR_LIBRARY as i32;
         }
 
@@ -146,7 +146,8 @@ fn verify_certificate_callback_impl(
         .expect("Connection id needs to be set in the verify certificate callback");
 
     match handler.verify(id, cnx.con_type(), &cert, &chain) {
-        Ok(()) => {}
+        Ok(true) => {}
+        Ok(false) => { return PTLS_ALERT_CERTIFICATE_UNKNOWN; }
         Err(e) => return ssl_error_to_error_code(e),
     };
 
