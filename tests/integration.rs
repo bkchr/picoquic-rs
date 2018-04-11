@@ -13,7 +13,7 @@ use std::fmt;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::channel;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::thread;
 
 use futures::sync::mpsc::unbounded;
@@ -411,14 +411,12 @@ fn open_bi_stream_to_server_and_server_creates_new_bi_stream_to_answer() {
 #[derive(Clone)]
 struct VerifyCertificateImpl {
     counter: Arc<AtomicUsize>,
-    connection_id: Arc<Mutex<Option<ConnectionId>>>,
 }
 
 impl VerifyCertificateImpl {
     fn new() -> VerifyCertificateImpl {
         VerifyCertificateImpl {
             counter: Arc::new(AtomicUsize::new(0)),
-            connection_id: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -434,21 +432,13 @@ impl VerifyCertificateImpl {
 impl VerifyCertificate for VerifyCertificateImpl {
     fn verify(
         &mut self,
-        id: ConnectionId,
+        _: ConnectionId,
         _: ConnectionType,
         cert: &X509Ref,
         chain: &StackRef<X509>,
     ) -> Result<bool, ErrorStack> {
         let ca_cert = include_bytes!("certs/ca.crt");
         let ca_cert = X509::from_pem(ca_cert)?;
-
-        let mut connection_id = self.connection_id.lock().unwrap();
-
-        if let Some(val) = *connection_id {
-            assert_eq!(val, id);
-        } else {
-            *connection_id = Some(id);
-        }
 
         let mut store_bldr = X509StoreBuilder::new().unwrap();
         store_bldr.add_cert(ca_cert).unwrap();

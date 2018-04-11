@@ -142,8 +142,7 @@ fn verify_certificate_callback_impl(
 
     let cnx = Connection::from(cnx);
 
-    let id = cnx.id()
-        .expect("Connection id needs to be set in the verify certificate callback");
+    let id = cnx.local_id();
 
     match handler.verify(id, cnx.con_type(), &cert, &chain) {
         Ok(true) => {}

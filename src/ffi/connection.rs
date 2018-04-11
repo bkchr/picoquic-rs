@@ -1,17 +1,17 @@
 use super::packet::Packet;
 use super::quic_ctx::{socket_addr_from_c, MicroSeconds, QuicCtx};
-use ConnectionType;
 use connection;
 use error::*;
 use stream;
+use ConnectionType;
 
 use picoquic_sys::picoquic::{self, picoquic_close, picoquic_cnx_t, picoquic_create_client_cnx,
                              picoquic_delete_cnx, picoquic_enable_keep_alive,
-                             picoquic_get_cnx_state, picoquic_get_cnxid, picoquic_get_first_cnx,
-                             picoquic_get_local_addr, picoquic_get_local_error,
-                             picoquic_get_next_cnx, picoquic_get_peer_addr,
-                             picoquic_get_remote_error, picoquic_is_client,
-                             picoquic_is_connection_id_null, picoquic_quic_t,
+                             picoquic_get_cnx_state, picoquic_get_first_cnx,
+                             picoquic_get_local_addr, picoquic_get_local_cnxid,
+                             picoquic_get_local_error, picoquic_get_next_cnx,
+                             picoquic_get_peer_addr, picoquic_get_remote_error,
+                             picoquic_is_client, picoquic_quic_t,
                              picoquic_state_enum_picoquic_state_client_ready,
                              picoquic_state_enum_picoquic_state_disconnected,
                              picoquic_state_enum_picoquic_state_server_ready,
@@ -173,18 +173,11 @@ impl Connection {
         }
     }
 
-    /// Returns the connection id for this connection.
-    /// The connection id is set by the server and if the function called to early, it returns
-    /// `None`, because we do not have the correct connection id at this point.
-    pub fn id(&self) -> Option<connection::Id> {
+    /// Returns the local connection id for this connection.
+    pub fn local_id(&self) -> connection::Id {
         unsafe {
-            let id = picoquic_get_cnxid(self.as_ptr());
-
-            if picoquic_is_connection_id_null(id) == 0 {
-                Some(picoquic_val64_connection_id(id))
-            } else {
-                None
-            }
+            let id = picoquic_get_local_cnxid(self.as_ptr());
+            picoquic_val64_connection_id(id)
         }
     }
 

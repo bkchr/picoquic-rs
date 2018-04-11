@@ -5,8 +5,8 @@ use picoquic_sys::picoquic::{self, picoquic_add_to_stream, picoquic_call_back_ev
 
 use bytes::BytesMut;
 
-use futures::Async::Ready;
 use futures::sync::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
+use futures::Async::Ready;
 use futures::{Future, Poll, Sink, StartSend, Stream as FStream};
 
 use std::net::SocketAddr;

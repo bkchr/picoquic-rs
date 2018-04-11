@@ -5,14 +5,14 @@ use stream::{self, Stream};
 use picoquic_sys::picoquic::{self, picoquic_call_back_event_t, picoquic_cnx_t,
                              picoquic_set_callback};
 
-use futures::Async::{NotReady, Ready};
 use futures::sync::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
 use futures::sync::oneshot;
+use futures::Async::{NotReady, Ready};
 use futures::{Future, Poll, Stream as FStream};
 
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::collections::hash_map::Entry::{Occupied, Vacant};
+use std::collections::HashMap;
 use std::mem;
 use std::net::SocketAddr;
 use std::os::raw::c_void;
@@ -150,10 +150,7 @@ impl Connection {
             keep_alive_interval,
         );
 
-        let con = builder.build(
-            cnx.id()
-                .expect("Connection id must be set for incoming connections."),
-        );
+        let con = builder.build(cnx.local_id());
 
         // Now we need to call the callback once manually to process the received data
         unsafe {
@@ -356,10 +353,7 @@ impl Context {
     fn process_wait_for_ready_state(&mut self) {
         match self.wait_for_ready_state.take() {
             Some((builder, sender)) => {
-                let id = self.cnx
-                    .id()
-                    .expect("Connection id should be set after reaching the ready state.");
-
+                let id = self.cnx.local_id();
                 let con = builder.build(id);
 
                 let _ = sender.send(Ok(con));

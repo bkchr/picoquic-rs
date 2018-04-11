@@ -17,9 +17,9 @@ use std::time::{Duration, Instant};
 use tokio_core::net::UdpSocket;
 use tokio_core::reactor::{Handle, Timeout};
 
-use futures::Async::{NotReady, Ready};
 use futures::sync::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
 use futures::sync::oneshot;
+use futures::Async::{NotReady, Ready};
 use futures::{task, Future, Poll, Stream};
 
 pub struct ContextInner {
