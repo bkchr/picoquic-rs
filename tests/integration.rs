@@ -137,8 +137,7 @@ fn client_connects_creates_stream_and_sends_data<F, T, C>(
     assert_eq!(stream.peer_addr(), ([127, 0, 0, 1], addr.port()).into());
     assert_ne!(stream.peer_addr(), stream.local_addr());
 
-    // The stream must not be dropped here!
-    let _stream = evt_loop
+    evt_loop
         .run(stream.send(BytesMut::from(send_data)))
         .unwrap();
 
@@ -196,28 +195,24 @@ fn client_connects_creates_unidirectional_stream_and_sends_data() {
 }
 
 #[test]
-fn connection_and_stream_closes_on_drop() {
-    timebomb::timeout_ms(connection_and_stream_closes_on_drop_inner, 10000);
+fn empty_stream_reset_on_drop() {
+    timebomb::timeout_ms(empty_stream_reset_on_drop_inner, 10000);
 }
 
-fn connection_and_stream_closes_on_drop_inner() {
+fn empty_stream_reset_on_drop_inner() {
     let send_data = "hello server";
     let (send, recv) = unbounded();
 
-    let addr = start_server_thread_with_default_config(move |c, _| {
+    let addr = start_server_thread_with_default_config(move |c, h| {
         c.for_each(move |c| {
             let send = send.clone();
-            c.into_future().map_err(|e| e.0).and_then(move |(s, c)| {
+            h.spawn(c.for_each(move |s| {
                 let send = send.clone();
-                s.unwrap()
-                    .into_future()
-                    .map(move |_| {
-                        let _ = send.clone().unbounded_send(true);
-                        let _ = c;
-                        ()
-                    })
-                    .map_err(|e| e.0)
-            })
+                let _ = send.clone().unbounded_send(true);
+                s.into_future().map(|_| ()).map_err(|e| e.0)
+            }).map_err(|_| ()));
+
+            Ok(())
         })
     });
 
@@ -237,21 +232,73 @@ fn connection_and_stream_closes_on_drop_inner() {
 
     assert!(evt_loop.run(recv.into_future()).unwrap().0.unwrap());
 
-    assert!(match evt_loop
-        .run(stream.into_future().map(|(m, _)| m).map_err(|(e, _)| e))
-        .unwrap()
-    {
+    let (result, stream) = evt_loop
+        .run(stream.into_future().map_err(|(e, _)| e))
+        .unwrap();
+
+    assert!(match result {
+        None => true,
+        _ => false,
+    });
+    assert!(stream.is_reset());
+}
+
+#[test]
+fn none_empty_stream_set_fin_bit_on_drop() {
+    timebomb::timeout_ms(none_empty_stream_set_fin_bit_on_drop_inner, 10000);
+}
+
+fn none_empty_stream_set_fin_bit_on_drop_inner() {
+    let send_data = "hello server";
+    let (send, recv) = unbounded();
+
+    let addr = start_server_thread_with_default_config(move |c, h| {
+        c.for_each(move |c| {
+            let send = send.clone();
+            h.spawn(c.for_each(move |s| {
+                let send = send.clone();
+                let _ = send.clone().unbounded_send(true);
+                s.send(BytesMut::from(send_data)).map(|_| ())
+            }).map_err(|_| ()));
+
+            Ok(())
+        })
+    });
+
+    let (mut context, mut evt_loop) = create_context_and_evt_loop_with_default_config();
+
+    let mut con = evt_loop
+        .run(context.new_connection(([127, 0, 0, 1], addr.port()).into()))
+        .expect("creates connection");
+
+    let stream = evt_loop
+        .run(con.new_bidirectional_stream())
+        .expect("creates stream");
+
+    let stream = evt_loop
+        .run(stream.send(BytesMut::from(send_data)))
+        .unwrap();
+
+    assert!(evt_loop.run(recv.into_future()).unwrap().0.unwrap());
+
+    let (result, stream) = evt_loop
+        .run(stream.into_future().map_err(|(e, _)| e))
+        .unwrap();
+
+    assert_eq!(
+        send_data,
+        &String::from_utf8(result.unwrap().to_vec()).unwrap()
+    );
+
+    let (result, stream) = evt_loop
+        .run(stream.into_future().map_err(|(e, _)| e))
+        .unwrap();
+    assert!(match result {
         None => true,
         _ => false,
     });
 
-    assert!(match evt_loop
-        .run(con.into_future().map(|(m, _)| m).map_err(|(e, _)| e))
-        .unwrap()
-    {
-        None => true,
-        _ => false,
-    });
+    assert!(!stream.is_reset());
 }
 
 fn start_server_that_sends_received_data_back<C>(create_config: C) -> SocketAddr
@@ -272,12 +319,7 @@ where
                 h.clone().spawn(
                     s.into_future()
                         .map_err(|_| ())
-                        .and_then(|(v, s)|{
-                           s.send(v.unwrap())
-                            .map_err(|_| ()) })
-                        // we need to do a fake collect here, to prevent that the stream gets
-                        // dropped to early.
-                        .and_then(|s| s.collect().map_err(|_| ()))
+                        .and_then(|(v, s)| s.send(v.unwrap()).map_err(|_| ()))
                         .map(|_| ()),
                 );
                 Ok(())
@@ -347,16 +389,13 @@ where
                 let new_stream = new_stream.clone();
 
                 s.into_future()
-                        .map_err(|e| e.0)
-                        .and_then(move |(v, _)|
-                                  create_stream(new_stream.clone())
-                                  .and_then(move |s|
-                                            s.send(v.unwrap())
-                                            .map_err(|_| ErrorKind::Unknown.into())))
-                        // we need to do a fake collect here, to prevent that the stream gets
-                        // dropped to early.
-                    .and_then(|s| s.collect().map_err(|_| ErrorKind::Unknown.into()))
-                        .map(|_| ())
+                    .map_err(|e| e.0)
+                    .and_then(move |(v, _)| {
+                        create_stream(new_stream.clone()).and_then(move |s| {
+                            s.send(v.unwrap()).map_err(|_| ErrorKind::Unknown.into())
+                        })
+                    })
+                    .map(|_| ())
             })
         })
     });

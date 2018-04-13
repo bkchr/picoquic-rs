@@ -9,7 +9,7 @@ use futures::sync::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
 use futures::Async::Ready;
 use futures::{Future, Poll, Sink, StartSend, Stream as FStream};
 
-use std::net::SocketAddr;
+use std::{net::SocketAddr, ptr};
 
 pub type Id = u64;
 
@@ -22,6 +22,8 @@ enum Message {
     /// Send data.
     Data(BytesMut),
     Error(Error),
+    /// Reset the `Stream`.
+    Reset,
 }
 
 /// A `Stream` can either be unidirectional or bidirectional.
@@ -41,6 +43,7 @@ pub struct Stream {
     id: Id,
     peer_addr: SocketAddr,
     local_addr: SocketAddr,
+    stream_reset: bool,
 }
 
 impl Stream {
@@ -60,6 +63,7 @@ impl Stream {
             id,
             peer_addr: cnx.peer_addr(),
             local_addr: local_addr,
+            stream_reset: false,
         };
 
         (stream, ctx)
@@ -83,6 +87,16 @@ impl Stream {
     pub fn local_addr(&self) -> SocketAddr {
         self.local_addr
     }
+
+    /// Resets this stream (immediate termination).
+    pub fn reset(self) {
+        let _ = self.send_msg.unbounded_send(Message::Reset);
+    }
+
+    /// Returns if this stream received a reset.
+    pub fn is_reset(&self) -> bool {
+        self.stream_reset
+    }
 }
 
 impl FStream for Stream {
@@ -98,6 +112,10 @@ impl FStream for Stream {
             Some(Message::Close) | None => Ok(Ready(None)),
             Some(Message::Data(d)) => Ok(Ready(Some(d))),
             Some(Message::Error(err)) => Err(err),
+            Some(Message::Reset) => {
+                self.stream_reset = true;
+                Ok(Ready(None))
+            }
         }
     }
 }
@@ -141,6 +159,8 @@ pub(crate) struct Context {
     cnx: ffi::Connection,
     /// Is the connection this Stream belongs to, a client connection?
     is_client_con: bool,
+    /// Did this stream send any data?
+    data_send: bool,
 }
 
 impl Context {
@@ -162,6 +182,7 @@ impl Context {
             finished: false,
             cnx,
             is_client_con,
+            data_send: false,
         }
     }
 
@@ -179,11 +200,16 @@ impl Context {
             || event == picoquic::picoquic_call_back_event_t_picoquic_callback_stream_reset
         {
             self.reset();
-            let _ = self.recv_msg.unbounded_send(Message::Close);
+            let _ = self.recv_msg.unbounded_send(Message::Reset);
         } else {
             let data = BytesMut::from(data);
 
             let _ = self.recv_msg.unbounded_send(Message::Data(data));
+        }
+
+        if event == picoquic::picoquic_call_back_event_t_picoquic_callback_stream_fin {
+            let _ = self.recv_msg.unbounded_send(Message::Close);
+            self.finished = true;
         }
     }
 
@@ -202,11 +228,23 @@ impl Context {
             //TODO: maybe we should do more than just printing
             error!("tried to send data to incoming unidirectional stream!");
         } else {
-            //TODO: `set_fin`(last argument) should be configurable
+            self.data_send = self.data_send || !data.is_empty();
             unsafe {
                 // TODO handle the result
                 picoquic_add_to_stream(self.cnx.as_ptr(), self.id, data.as_ptr(), data.len(), 0);
             }
+        }
+    }
+
+    fn close(&mut self) {
+        self.finished = true;
+
+        if self.data_send {
+            unsafe {
+                picoquic_add_to_stream(self.cnx.as_ptr(), self.id, ptr::null(), 0, 1);
+            }
+        } else {
+            self.reset()
         }
     }
 
@@ -236,8 +274,12 @@ impl Future for Context {
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
         loop {
             match try_ready!(self.send_msg.poll()) {
-                Some(Message::Close) => {
+                Some(Message::Reset) => {
                     self.reset();
+                    return Ok(Ready(()));
+                }
+                Some(Message::Close) => {
+                    self.close();
                     return Ok(Ready(()));
                 }
                 Some(Message::Data(data)) => {

@@ -224,10 +224,12 @@ impl Connection {
     pub fn get_new_stream_handle(&self) -> NewStreamHandle {
         self.new_stream_handle.clone()
     }
-}
 
-impl Drop for Connection {
-    fn drop(&mut self) {
+    /// Immediately closes this connection.
+    /// Any buffered data will be discarded.
+    /// This function should only be used, if the application layer negotiated a close of the
+    /// connection.
+    pub fn close_immediately(mut self) {
         self.close_send.take().map(|s| s.send(()));
     }
 }
@@ -309,13 +311,7 @@ impl Context {
         };
 
         if let Some(stream) = new_stream_handle {
-            if self.send_msg
-                .unbounded_send(Message::NewStream(stream))
-                .is_err()
-            {
-                info!("will close connection, because `Connection` instance was dropped.");
-                self.close();
-            }
+            let _ = self.send_msg.unbounded_send(Message::NewStream(stream));
         }
     }
 
@@ -409,7 +405,7 @@ impl Future for Context {
 
         // Check if the connection should be closed
         match self.close_recv.poll() {
-            Err(_) | Ok(Ready(_)) => {
+            Ok(Ready(_)) => {
                 self.close();
             }
             _ => {}
