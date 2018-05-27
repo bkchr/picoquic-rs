@@ -12,6 +12,9 @@ fn main() {
         None => false,
     };
 
+    let openssl_include =
+        env::var("DEP_OPENSSL_INCLUDE").expect("Could not find openssl include directory.");
+
     // build picotls
     cc::Build::new()
         .flag("-Wno-unused-parameter")
@@ -21,6 +24,7 @@ fn main() {
         .file("src/picotls/lib/pembase64.c")
         .file("src/picotls/lib/openssl.c")
         .include("src/picotls/include/")
+        .include(&openssl_include)
         .compile("picotls");
 
     // build picoquic
@@ -38,6 +42,7 @@ fn main() {
                     _ => None,
                 }),
         )
+        .include(openssl_include)
         .include("src/picoquic/picoquic")
         .include("src/picotls/include/");
 
