@@ -12,21 +12,28 @@ fn main() {
         None => false,
     };
 
+    let target = env::var("TARGET").unwrap();
+
     let openssl_include =
         env::var("DEP_OPENSSL_INCLUDE").expect("Could not find openssl include directory.");
 
     // build picotls
-    cc::Build::new()
+    let mut picotls = cc::Build::new();
+    picotls
         .flag("-Wno-unused-parameter")
         .flag("-Wno-missing-field-initializers")
         .flag("-Wno-sign-compare")
-        .flag("-std=c11")
         .file("src/picotls/lib/picotls.c")
         .file("src/picotls/lib/pembase64.c")
         .file("src/picotls/lib/openssl.c")
         .include("src/picotls/include/")
-        .include(&openssl_include)
-        .compile("picotls");
+        .include(&openssl_include);
+
+    if target.contains("android") {
+        picotls.flag("-std=c99");
+    }
+
+    picotls.compile("picotls");
 
     // build picoquic
     let mut picoquic = cc::Build::new();
@@ -35,7 +42,6 @@ fn main() {
         .flag("-Wno-sign-compare")
         .flag("-Wno-unused-but-set-variable")
         .flag("-Wno-missing-field-initializers")
-        .flag("-std=c11")
         .files(
             glob::glob("src/picoquic/picoquic/*.c")
                 .expect("failed to find picoquic c files")
@@ -47,6 +53,10 @@ fn main() {
         .include(openssl_include)
         .include("src/picoquic/picoquic")
         .include("src/picotls/include/");
+
+    if target.contains("android") {
+        picoquic.flag("-std=c99");
+    }
 
     if !debug {
         picoquic.define("DISABLE_DEBUG_PRINTF", None);
