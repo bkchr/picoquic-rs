@@ -19,4 +19,4 @@ openssl-sys = "^0.9.28"
 cmake = "0.1"
 cc = { version = "1.0", features = ["parallel"] }
 glob = "0.2"
-bindgen = "0.32"
+bindgen = "0.37"
