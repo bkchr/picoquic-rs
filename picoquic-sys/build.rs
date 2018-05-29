@@ -14,8 +14,13 @@ fn main() {
 
     let target = env::var("TARGET").unwrap();
 
-    let openssl_include =
-        env::var("DEP_OPENSSL_INCLUDE").expect("Could not find openssl include directory.");
+    let openssl_include = env::var("DEP_OPENSSL_INCLUDE");
+
+    if let Err(_) = openssl_include {
+        println!(
+            "cargo:warning=Could not find openssl include directory via `DEP_OPENSSL_INCLUDE`."
+        )
+    }
 
     // build picotls
     let mut picotls = cc::Build::new();
@@ -26,8 +31,11 @@ fn main() {
         .file("src/picotls/lib/picotls.c")
         .file("src/picotls/lib/pembase64.c")
         .file("src/picotls/lib/openssl.c")
-        .include("src/picotls/include/")
-        .include(&openssl_include);
+        .include("src/picotls/include/");
+
+    if let Ok(ref openssl_include) = openssl_include {
+        picotls.include(&openssl_include);
+    }
 
     if target.contains("android") {
         picotls.flag("-std=c99");
@@ -50,9 +58,12 @@ fn main() {
                     _ => None,
                 }),
         )
-        .include(openssl_include)
         .include("src/picoquic/picoquic")
         .include("src/picotls/include/");
+
+    if let Ok(ref openssl_include) = openssl_include {
+        picoquic.include(&openssl_include);
+    }
 
     if target.contains("android") {
         picoquic.flag("-std=c99");
