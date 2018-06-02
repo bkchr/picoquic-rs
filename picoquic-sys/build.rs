@@ -31,6 +31,16 @@ fn main() {
         .file("src/picotls/lib/picotls.c")
         .file("src/picotls/lib/pembase64.c")
         .file("src/picotls/lib/openssl.c")
+        .file("src/picotls/lib/cifra.c")
+        .file("src/picotls/deps/cifra/src/aes.c")
+        .file("src/picotls/deps/cifra/src/curve25519.c")
+        .file("src/picotls/deps/cifra/src/chacha20.c")
+        .file("src/picotls/deps/cifra/src/sha256.c")
+        .file("src/picotls/deps/cifra/src/poly1305.c")
+        .file("src/picotls/deps/cifra/src/drbg.c")
+        .file("src/picotls/deps/cifra/src/blockwise.c")
+        .include("src/picotls/deps/cifra/src/")
+        .include("src/picotls/deps/cifra/src/ext/")
         .include("src/picotls/include/");
 
     if let Ok(ref openssl_include) = openssl_include {
