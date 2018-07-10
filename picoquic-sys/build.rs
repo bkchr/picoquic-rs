@@ -36,6 +36,7 @@ fn main() {
         .file("src/picotls/deps/cifra/src/curve25519.c")
         .file("src/picotls/deps/cifra/src/chacha20.c")
         .file("src/picotls/deps/cifra/src/sha256.c")
+        .file("src/picotls/deps/cifra/src/sha512.c")
         .file("src/picotls/deps/cifra/src/poly1305.c")
         .file("src/picotls/deps/cifra/src/drbg.c")
         .file("src/picotls/deps/cifra/src/blockwise.c")
