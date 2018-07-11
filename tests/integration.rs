@@ -5,9 +5,10 @@ extern crate picoquic;
 extern crate timebomb;
 extern crate tokio_core;
 
-use picoquic::{default_verify_certificate, Config, Connection, ConnectionId, ConnectionType,
-               Context, ErrorKind, FileFormat, NewStreamFuture, NewStreamHandle, SType, Stream,
-               VerifyCertificate};
+use picoquic::{
+    default_verify_certificate, Config, Connection, ConnectionId, ConnectionType, Context,
+    FileFormat, NewStreamFuture, NewStreamHandle, SType, Stream, VerifyCertificate,
+};
 
 use std::fmt;
 use std::net::SocketAddr;
@@ -111,7 +112,8 @@ fn client_connects_creates_stream_and_sends_data<F, T, C>(
             c.for_each(move |s| {
                 let send = send.clone();
                 s.for_each(move |m| {
-                    let _ = send.clone()
+                    let _ = send
+                        .clone()
                         .unbounded_send(String::from_utf8(m.to_vec()).unwrap());
                     Ok(())
                 })
@@ -195,22 +197,19 @@ fn client_connects_creates_unidirectional_stream_and_sends_data() {
 }
 
 #[test]
-fn empty_stream_reset_on_drop() {
-    timebomb::timeout_ms(empty_stream_reset_on_drop_inner, 10000);
+fn empty_stream_reset_and_no_more_send_on_drop() {
+    timebomb::timeout_ms(empty_stream_reset_and_no_more_send_on_drop_inner, 10000);
 }
 
-fn empty_stream_reset_on_drop_inner() {
+fn empty_stream_reset_and_no_more_send_on_drop_inner() {
     let send_data = "hello server";
-    let (send, recv) = unbounded();
 
     let addr = start_server_thread_with_default_config(move |c, h| {
         c.for_each(move |c| {
-            let send = send.clone();
-            h.spawn(c.for_each(move |s| {
-                let send = send.clone();
-                let _ = send.clone().unbounded_send(true);
-                s.into_future().map(|_| ()).map_err(|e| e.0)
-            }).map_err(|_| ()));
+            h.spawn(
+                c.for_each(move |s| s.into_future().map(|_| ()).map_err(|e| e.0))
+                    .map_err(|_| ()),
+            );
 
             Ok(())
         })
@@ -230,9 +229,7 @@ fn empty_stream_reset_on_drop_inner() {
         .run(stream.send(BytesMut::from(send_data)))
         .unwrap();
 
-    assert!(evt_loop.run(recv.into_future()).unwrap().0.unwrap());
-
-    let (result, stream) = evt_loop
+    let (result, mut stream) = evt_loop
         .run(stream.into_future().map_err(|(e, _)| e))
         .unwrap();
 
@@ -240,6 +237,7 @@ fn empty_stream_reset_on_drop_inner() {
         None => true,
         _ => false,
     });
+    assert!(stream.start_send(BytesMut::from("error")).is_err());
     assert!(stream.is_reset());
 }
 
@@ -250,16 +248,13 @@ fn none_empty_stream_set_fin_bit_on_drop() {
 
 fn none_empty_stream_set_fin_bit_on_drop_inner() {
     let send_data = "hello server";
-    let (send, recv) = unbounded();
 
     let addr = start_server_thread_with_default_config(move |c, h| {
         c.for_each(move |c| {
-            let send = send.clone();
-            h.spawn(c.for_each(move |s| {
-                let send = send.clone();
-                let _ = send.clone().unbounded_send(true);
-                s.send(BytesMut::from(send_data)).map(|_| ())
-            }).map_err(|_| ()));
+            h.spawn(
+                c.for_each(move |s| s.send(BytesMut::from(send_data)).map(|_| ()))
+                    .map_err(|_| ()),
+            );
 
             Ok(())
         })
@@ -272,14 +267,11 @@ fn none_empty_stream_set_fin_bit_on_drop_inner() {
         .expect("creates connection");
 
     let stream = evt_loop
-        .run(con.new_bidirectional_stream())
+        .run(
+            con.new_bidirectional_stream()
+                .and_then(|s| s.send(BytesMut::from(send_data))),
+        )
         .expect("creates stream");
-
-    let stream = evt_loop
-        .run(stream.send(BytesMut::from(send_data)))
-        .unwrap();
-
-    assert!(evt_loop.run(recv.into_future()).unwrap().0.unwrap());
 
     let (result, stream) = evt_loop
         .run(stream.into_future().map_err(|(e, _)| e))
@@ -309,21 +301,21 @@ where
         c.for_each(move |c| {
             let h = h.clone();
 
-            h.clone().spawn(c.for_each(move |s| {
-                // Peer addr and local addr can not be the same
-                assert_ne!(s.peer_addr(), s.local_addr());
-                // The local address should be unspecified, as we do not set a specific address in
-                // the tests.
-                assert!(s.local_addr().ip().is_unspecified());
+            h.clone().spawn(
+                c.for_each(move |s| {
+                    // Peer addr and local addr can not be the same
+                    assert_ne!(s.peer_addr(), s.local_addr());
+                    // The local address should be unspecified, as we do not set a specific address in
+                    // the tests.
+                    assert!(s.local_addr().ip().is_unspecified());
 
-                h.clone().spawn(
-                    s.into_future()
-                        .map_err(|_| ())
-                        .and_then(|(v, s)| s.send(v.unwrap()).map_err(|_| ()))
-                        .map(|_| ()),
-                );
-                Ok(())
-            }).map_err(|_| ()));
+                    let (send, recv) = s.split();
+
+                    h.clone()
+                        .spawn(send.send_all(recv).map(|_| ()).map_err(|_| ()));
+                    Ok(())
+                }).map_err(|_| ()),
+            );
 
             Ok(())
         })
@@ -384,17 +376,12 @@ where
             let create_stream = create_stream.clone();
             let new_stream = c.get_new_stream_handle();
 
-            c.for_each(move |s| {
+            c.for_each(move |incoming_stream| {
                 let create_stream = create_stream.clone();
                 let new_stream = new_stream.clone();
 
-                s.into_future()
-                    .map_err(|e| e.0)
-                    .and_then(move |(v, _)| {
-                        create_stream(new_stream.clone()).and_then(move |s| {
-                            s.send(v.unwrap()).map_err(|_| ErrorKind::Unknown.into())
-                        })
-                    })
+                create_stream(new_stream.clone())
+                    .and_then(move |s| s.send_all(incoming_stream))
                     .map(|_| ())
             })
         })

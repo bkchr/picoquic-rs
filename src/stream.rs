@@ -1,13 +1,16 @@
 use error::*;
 use ffi;
-use picoquic_sys::picoquic::{self, picoquic_add_to_stream, picoquic_call_back_event_t,
-                             picoquic_reset_stream};
+use picoquic_sys::picoquic::{
+    self, picoquic_add_to_stream, picoquic_call_back_event_t, picoquic_reset_stream,
+    picoquic_stop_sending,
+};
 
 use bytes::BytesMut;
 
-use futures::sync::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
-use futures::Async::Ready;
-use futures::{Future, Poll, Sink, StartSend, Stream as FStream};
+use futures::{
+    sync::mpsc::{unbounded, UnboundedReceiver, UnboundedSender}, Async::{NotReady, Ready}, Future,
+    Poll, Sink, StartSend, Stream as FStream,
+};
 
 use std::{net::SocketAddr, ptr};
 
@@ -161,6 +164,7 @@ pub(crate) struct Context {
     is_client_con: bool,
     /// Did this stream send any data?
     data_send: bool,
+    stop_sending: bool,
 }
 
 impl Context {
@@ -183,11 +187,13 @@ impl Context {
             cnx,
             is_client_con,
             data_send: false,
+            stop_sending: false,
         }
     }
 
     fn reset(&mut self) {
         self.finished = true;
+        self.send_msg.close();
         unsafe {
             picoquic_reset_stream(self.cnx.as_ptr(), self.id, 0);
         }
@@ -196,11 +202,12 @@ impl Context {
     pub fn recv_data(&mut self, data: &[u8], event: picoquic_call_back_event_t) {
         if self.finished {
             error!("stream({}) received data after being finished!", self.id);
-        } else if event == picoquic::picoquic_call_back_event_t_picoquic_callback_stop_sending
-            || event == picoquic::picoquic_call_back_event_t_picoquic_callback_stream_reset
-        {
+        } else if event == picoquic::picoquic_call_back_event_t_picoquic_callback_stream_reset {
             self.reset();
             let _ = self.recv_msg.unbounded_send(Message::Reset);
+        } else if event == picoquic::picoquic_call_back_event_t_picoquic_callback_stop_sending {
+            self.stop_sending = true;
+            self.send_msg.close();
         } else {
             let data = BytesMut::from(data);
 
@@ -227,7 +234,7 @@ impl Context {
         if is_unidirectional(self.id) && !self.is_unidirectional_send_allowed() {
             //TODO: maybe we should do more than just printing
             error!("tried to send data to incoming unidirectional stream!");
-        } else {
+        } else if !self.stop_sending {
             self.data_send = self.data_send || !data.is_empty();
             unsafe {
                 // TODO handle the result
@@ -238,13 +245,20 @@ impl Context {
 
     fn close(&mut self) {
         self.finished = true;
+        self.send_msg.close();
 
         if self.data_send {
             unsafe {
                 picoquic_add_to_stream(self.cnx.as_ptr(), self.id, ptr::null(), 0, 1);
             }
         } else {
-            self.reset()
+            self.reset();
+        }
+
+        if !is_unidirectional(self.id) || !self.is_unidirectional_send_allowed() {
+            unsafe {
+                picoquic_stop_sending(self.cnx.as_ptr(), self.id, 0);
+            }
         }
     }
 
@@ -287,9 +301,11 @@ impl Future for Context {
                 }
                 Some(Message::Error(_)) => {}
                 None => {
-                    error!("received `None`, closing!");
-                    self.reset();
-                    return Ok(Ready(()));
+                    if self.finished {
+                        return Ok(Ready(()));
+                    } else {
+                        return Ok(NotReady);
+                    }
                 }
             }
         }
