@@ -177,8 +177,9 @@ mod stream;
 mod verify_certificate;
 
 pub use self::config::{Config, FileFormat, Role};
-pub use self::connection::{Connection, Id as ConnectionId, NewStreamFuture, NewStreamHandle,
-                           Type as ConnectionType};
+pub use self::connection::{
+    Connection, Id as ConnectionId, NewStreamFuture, NewStreamHandle, Type as ConnectionType,
+};
 pub use self::context::Context;
 pub use self::context_inner::{NewConnectionFuture, NewConnectionHandle};
 pub use self::error::{Error, ErrorKind};

@@ -32,22 +32,24 @@ fn main() {
 
             println!("New connection from: {}", c.peer_addr());
 
-            handle.clone().spawn(c.for_each(move |s| {
-                // We print the received message and sent a new one, after that we collect all
-                // remaining messages. The collect is a "hack" that prevents that the `Stream` is
-                // dropped to early.
-                handle.clone().spawn(
-                    s.into_future()
-                        .map_err(|_| ())
-                        .and_then(|(m, s)| {
-                            println!("Got: {:?}", m);
-                            s.send(BytesMut::from("hello client")).map_err(|_| ())
-                        })
-                        .and_then(|s| s.collect().map_err(|_| ()))
-                        .map(|_| ()),
-                );
-                Ok(())
-            }).map_err(|_| ()));
+            handle.clone().spawn(
+                c.for_each(move |s| {
+                    // We print the received message and sent a new one, after that we collect all
+                    // remaining messages. The collect is a "hack" that prevents that the `Stream` is
+                    // dropped to early.
+                    handle.clone().spawn(
+                        s.into_future()
+                            .map_err(|_| ())
+                            .and_then(|(m, s)| {
+                                println!("Got: {:?}", m);
+                                s.send(BytesMut::from("hello client")).map_err(|_| ())
+                            })
+                            .and_then(|s| s.collect().map_err(|_| ()))
+                            .map(|_| ()),
+                    );
+                    Ok(())
+                }).map_err(|_| ()),
+            );
 
             Ok(())
         }))

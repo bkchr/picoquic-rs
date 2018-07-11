@@ -4,7 +4,9 @@ use error::*;
 use ffi::QuicCtx;
 use stream;
 
-use picoquic_sys::picoquic::{picoquic_call_back_event_t, picoquic_cnx_t, PICOQUIC_MAX_PACKET_SIZE};
+use picoquic_sys::picoquic::{
+    picoquic_call_back_event_t, picoquic_cnx_t, PICOQUIC_MAX_PACKET_SIZE,
+};
 
 use std::cell::RefCell;
 use std::io;
@@ -172,7 +174,8 @@ impl ContextInner {
                 break;
             }
 
-            let _ = self.socket
+            let _ = self
+                .socket
                 .send_to(packet.get_data(), &packet.get_peer_addr());
         }
     }

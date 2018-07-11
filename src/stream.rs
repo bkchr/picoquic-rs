@@ -8,8 +8,9 @@ use picoquic_sys::picoquic::{
 use bytes::BytesMut;
 
 use futures::{
-    sync::mpsc::{unbounded, UnboundedReceiver, UnboundedSender}, Async::{NotReady, Ready}, Future,
-    Poll, Sink, StartSend, Stream as FStream,
+    sync::mpsc::{unbounded, UnboundedReceiver, UnboundedSender},
+    Async::{NotReady, Ready},
+    Future, Poll, Sink, StartSend, Stream as FStream,
 };
 
 use std::{net::SocketAddr, ptr};

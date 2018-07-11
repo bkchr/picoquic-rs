@@ -5,17 +5,16 @@ use error::*;
 use stream;
 use ConnectionType;
 
-use picoquic_sys::picoquic::{self, picoquic_close, picoquic_cnx_t, picoquic_create_client_cnx,
-                             picoquic_delete_cnx, picoquic_enable_keep_alive,
-                             picoquic_get_cnx_state, picoquic_get_first_cnx,
-                             picoquic_get_local_addr, picoquic_get_local_cnxid,
-                             picoquic_get_local_error, picoquic_get_next_cnx,
-                             picoquic_get_peer_addr, picoquic_get_remote_error,
-                             picoquic_is_client, picoquic_quic_t,
-                             picoquic_state_enum_picoquic_state_client_ready,
-                             picoquic_state_enum_picoquic_state_disconnected,
-                             picoquic_state_enum_picoquic_state_server_ready,
-                             picoquic_val64_connection_id, PICOQUIC_TLS_HANDSHAKE_FAILED};
+use picoquic_sys::picoquic::{
+    self, picoquic_close, picoquic_cnx_t, picoquic_create_client_cnx, picoquic_delete_cnx,
+    picoquic_enable_keep_alive, picoquic_get_cnx_state, picoquic_get_first_cnx,
+    picoquic_get_local_addr, picoquic_get_local_cnxid, picoquic_get_local_error,
+    picoquic_get_next_cnx, picoquic_get_peer_addr, picoquic_get_remote_error, picoquic_is_client,
+    picoquic_quic_t, picoquic_state_enum_picoquic_state_client_ready,
+    picoquic_state_enum_picoquic_state_disconnected,
+    picoquic_state_enum_picoquic_state_server_ready, picoquic_val64_connection_id,
+    PICOQUIC_TLS_HANDSHAKE_FAILED,
+};
 
 use std::net::SocketAddr;
 use std::ptr;

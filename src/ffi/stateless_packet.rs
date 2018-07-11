@@ -1,7 +1,8 @@
 use super::quic_ctx::socket_addr_from_c;
-use picoquic_sys::picoquic::{self, picoquic_delete_stateless_packet,
-                             picoquic_dequeue_stateless_packet, picoquic_quic_t,
-                             picoquic_stateless_packet_t};
+use picoquic_sys::picoquic::{
+    self, picoquic_delete_stateless_packet, picoquic_dequeue_stateless_packet, picoquic_quic_t,
+    picoquic_stateless_packet_t,
+};
 
 use std::iter::Iterator;
 use std::marker::PhantomData;
@@ -21,11 +22,8 @@ impl StatelessPacket {
     }
 
     pub fn get_peer_addr(&self) -> SocketAddr {
-        let addr = unsafe {
-            mem::transmute::<&_, *mut picoquic::sockaddr>(
-                &mut (*self.packet).addr_to,
-            )
-        };
+        let addr =
+            unsafe { mem::transmute::<&_, *mut picoquic::sockaddr>(&mut (*self.packet).addr_to) };
         let socket_family = unsafe { (*self.packet).addr_to.ss_family };
 
         let socket_len = if socket_family as i32 == libc::AF_INET {

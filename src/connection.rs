@@ -2,8 +2,9 @@ use error::*;
 use ffi::{self, QuicCtx};
 use stream::{self, Stream};
 
-use picoquic_sys::picoquic::{self, picoquic_call_back_event_t, picoquic_cnx_t,
-                             picoquic_set_callback};
+use picoquic_sys::picoquic::{
+    self, picoquic_call_back_event_t, picoquic_cnx_t, picoquic_set_callback,
+};
 
 use futures::sync::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
 use futures::sync::oneshot;

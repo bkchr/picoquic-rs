@@ -4,11 +4,12 @@ use config::{Config, FileFormat};
 use error::*;
 use ffi::verify_certificate;
 
-use picoquic_sys::picoquic::{self, picoquic_create, picoquic_current_time, picoquic_free,
-                             picoquic_get_next_wake_delay, picoquic_incoming_packet,
-                             picoquic_quic_t, picoquic_set_client_authentication,
-                             picoquic_set_tls_certificate_chain, picoquic_set_tls_key,
-                             picoquic_stream_data_cb_fn, ptls_iovec_t};
+use picoquic_sys::picoquic::{
+    self, picoquic_create, picoquic_current_time, picoquic_free, picoquic_get_next_wake_delay,
+    picoquic_incoming_packet, picoquic_quic_t, picoquic_set_client_authentication,
+    picoquic_set_tls_certificate_chain, picoquic_set_tls_key, picoquic_stream_data_cb_fn,
+    ptls_iovec_t,
+};
 
 use std::ffi::CString;
 use std::mem;

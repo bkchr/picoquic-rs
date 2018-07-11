@@ -2,11 +2,12 @@ use error::*;
 use ffi::{Connection, QuicCtx};
 use verify_certificate::VerifyCertificate;
 
-use picoquic_sys::picoquic::{picoquic_cnx_t, picoquic_set_verify_certificate_callback,
-                             picoquic_verify_sign_cb_fn, ptls_iovec_t, PTLS_ALERT_BAD_CERTIFICATE,
-                             PTLS_ALERT_CERTIFICATE_EXPIRED, PTLS_ALERT_CERTIFICATE_REVOKED,
-                             PTLS_ALERT_CERTIFICATE_UNKNOWN, PTLS_ALERT_DECRYPT_ERROR,
-                             PTLS_ERROR_LIBRARY, PTLS_ERROR_NO_MEMORY};
+use picoquic_sys::picoquic::{
+    picoquic_cnx_t, picoquic_set_verify_certificate_callback, picoquic_verify_sign_cb_fn,
+    ptls_iovec_t, PTLS_ALERT_BAD_CERTIFICATE, PTLS_ALERT_CERTIFICATE_EXPIRED,
+    PTLS_ALERT_CERTIFICATE_REVOKED, PTLS_ALERT_CERTIFICATE_UNKNOWN, PTLS_ALERT_DECRYPT_ERROR,
+    PTLS_ERROR_LIBRARY, PTLS_ERROR_NO_MEMORY,
+};
 
 use std::mem;
 use std::os::raw::{c_int, c_void};

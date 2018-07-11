@@ -1,8 +1,9 @@
 use error::*;
 use ffi::Connection;
 
-use picoquic_sys::picoquic::{picoquic_create_packet, picoquic_packet, picoquic_prepare_packet,
-                             PICOQUIC_ERROR_DISCONNECTED};
+use picoquic_sys::picoquic::{
+    picoquic_create_packet, picoquic_packet, picoquic_prepare_packet, PICOQUIC_ERROR_DISCONNECTED,
+};
 
 use libc;
 
