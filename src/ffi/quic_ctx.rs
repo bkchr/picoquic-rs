@@ -75,6 +75,7 @@ impl QuicCtx {
                     .map(|v| v.as_ptr())
                     .unwrap_or_else(|| ptr::null_mut()),
                 ptr::null(),
+                ptr::null(),
                 default_callback,
                 default_ctx,
                 None,
