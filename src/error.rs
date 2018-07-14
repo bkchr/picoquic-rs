@@ -1,8 +1,7 @@
-use std::ffi;
-use std::fmt;
+use std::{fmt, ffi };
 
 pub use failure::ResultExt;
-use failure::{Backtrace, Context, Fail};
+use failure::{self, Backtrace, Context, Fail};
 
 use bytes::BytesMut;
 
@@ -69,7 +68,13 @@ impl From<openssl::error::ErrorStack> for Error {
     }
 }
 
-#[derive(Clone, Eq, PartialEq, Debug, Fail)]
+impl From<failure::Error> for Error {
+    fn from(e: failure::Error) -> Error {
+        ErrorKind::Custom(e).into()
+    }
+}
+
+#[derive(Debug, Fail)]
 pub enum ErrorKind {
     #[fail(display = "A network error occurred.")]
     NetworkError,
@@ -91,4 +96,16 @@ pub enum ErrorKind {
     NoneUnicode,
     #[fail(display = "An OpenSSL error occurred.")]
     OpenSSLError,
+    #[fail(display = "Error {}", _0)]
+    Custom(failure::Error),
+}
+
+//FIXME: Remove when upstream provides a better bail macro
+macro_rules! bail {
+    ($e:expr) => {
+        return Err(::failure::err_msg::<&'static str>($e).into());
+    };
+    ($fmt:expr, $($arg:tt)+) => {
+        return Err(::failure::err_msg::<String>(format!($fmt, $($arg)+)).into());
+    };
 }

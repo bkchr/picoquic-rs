@@ -1,5 +1,4 @@
 mod connection;
-mod packet;
 mod quic_ctx;
 mod stateless_packet;
 mod verify_certificate;

@@ -1,4 +1,3 @@
-use super::packet::Packet;
 use super::quic_ctx::{socket_addr_from_c, MicroSeconds, QuicCtx};
 use connection;
 use error::*;
@@ -10,12 +9,13 @@ use picoquic_sys::picoquic::{
     picoquic_enable_keep_alive, picoquic_get_cnx_state, picoquic_get_first_cnx,
     picoquic_get_local_addr, picoquic_get_local_cnxid, picoquic_get_local_error,
     picoquic_get_next_cnx, picoquic_get_peer_addr, picoquic_get_remote_error, picoquic_is_client,
-    picoquic_quic_t, picoquic_state_enum_picoquic_state_client_ready,
+    picoquic_prepare_packet, picoquic_quic_t, picoquic_state_enum_picoquic_state_client_ready,
     picoquic_state_enum_picoquic_state_disconnected,
     picoquic_state_enum_picoquic_state_server_ready, picoquic_val64_connection_id,
-    PICOQUIC_TLS_HANDSHAKE_FAILED,
+    PICOQUIC_ERROR_DISCONNECTED, PICOQUIC_TLS_HANDSHAKE_FAILED,
 };
 
+use std::ffi::CString;
 use std::net::SocketAddr;
 use std::ptr;
 use std::time::Duration;
@@ -88,24 +88,38 @@ impl Connection {
         }
     }
 
-    /// Creates and prepares a `Packet`.
+    /// Prepares a `Packet`.
     /// The `Packet` contains any data from this connection(data from streams, ACK's, ...).
     /// The `Packet` will be stored in the given buffer.
     ///
     /// # Returns
-    /// The length of the `Packet` in the buffer or `None` if the package does not contains any data.
-    pub fn create_and_prepare_packet(
+    /// The length of the `Packet` in the buffer or `None` if the packet does not contains any data.
+    pub fn prepare_packet(
         &self,
         buffer: &mut [u8],
         current_time: u64,
     ) -> Result<Option<usize>, Error> {
-        let mut packet = Packet::create(buffer)?;
-        let size = packet.prepare(current_time, self)?;
+        let mut send_len = 0;
+        let ret = unsafe {
+            picoquic_prepare_packet(
+                self.as_ptr(),
+                current_time,
+                buffer.as_mut_ptr(),
+                buffer.len(),
+                &mut send_len,
+            )
+        };
 
-        if packet.contains_data() {
-            Ok(Some(size))
+        if ret == PICOQUIC_ERROR_DISCONNECTED as i32 {
+            Err(ErrorKind::Disconnected.into())
+        } else if ret == 0 {
+            if send_len > 0 {
+                Ok(Some(send_len))
+            } else {
+                Ok(None)
+            }
         } else {
-            Ok(None)
+            Err(ErrorKind::Unknown.into())
         }
     }
 

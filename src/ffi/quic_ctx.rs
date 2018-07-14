@@ -8,16 +8,13 @@ use picoquic_sys::picoquic::{
     self, picoquic_create, picoquic_current_time, picoquic_free, picoquic_get_next_wake_delay,
     picoquic_incoming_packet, picoquic_quic_t, picoquic_set_client_authentication,
     picoquic_set_tls_certificate_chain, picoquic_set_tls_key, picoquic_stream_data_cb_fn,
-    ptls_iovec_t,
+    ptls_iovec_t, picoquic_set_tls_root_certificates
 };
 
-use std::ffi::CString;
-use std::mem;
-use std::net::SocketAddr;
-use std::os::raw::c_void;
-use std::path::PathBuf;
-use std::ptr;
-use std::time::{Duration, Instant};
+use std::{
+    ffi::CString, mem, net::SocketAddr, os::raw::{c_char, c_void}, path::PathBuf, ptr,
+    time::{Duration, Instant},
+};
 
 use socket2::SockAddr;
 
@@ -25,6 +22,26 @@ use libc;
 
 use openssl::pkey::PKey;
 use openssl::x509::X509;
+
+fn create_cstring(path: Option<PathBuf>) -> Result<Option<CString>, Error> {
+    match path {
+        Some(p) => {
+            let string = match p.into_os_string().into_string() {
+                Ok(string) => string,
+                Err(_) => return Err(ErrorKind::NoneUnicode.into()),
+            };
+            Ok(Some(CString::new(string)?))
+        }
+        None => Ok(None),
+    }
+}
+
+fn c_str_or_null(string: &Option<CString>) -> *const c_char {
+    string
+        .as_ref()
+        .map(|v| v.as_ptr())
+        .unwrap_or_else(|| ptr::null())
+}
 
 pub struct QuicCtx {
     quic: *mut picoquic_quic_t,
@@ -41,21 +58,9 @@ impl QuicCtx {
         // The buckets itself are a linked list
         let connection_buckets = 16;
 
-        fn create_cstring(path: Option<PathBuf>) -> Result<Option<CString>, Error> {
-            match path {
-                Some(p) => {
-                    let string = match p.into_os_string().into_string() {
-                        Ok(string) => string,
-                        Err(_) => return Err(ErrorKind::NoneUnicode.into()),
-                    };
-                    Ok(Some(CString::new(string)?))
-                }
-                None => Ok(None),
-            }
-        }
-
-        let cert_filename = create_cstring(config.cert_chain_filename)?;
-        let key_filename = create_cstring(config.key_filename)?;
+        let cert_filename = create_cstring(config.certificate_chain_filename)?;
+        let key_filename = create_cstring(config.private_key_filename)?;
+        let root_cert_filename = create_cstring(config.root_certificate_filename)?;
 
         let reset_seed = config
             .reset_seed
@@ -66,15 +71,9 @@ impl QuicCtx {
         let quic = unsafe {
             picoquic_create(
                 connection_buckets,
-                cert_filename
-                    .as_ref()
-                    .map(|v| v.as_ptr())
-                    .unwrap_or_else(|| ptr::null_mut()),
-                key_filename
-                    .as_ref()
-                    .map(|v| v.as_ptr())
-                    .unwrap_or_else(|| ptr::null_mut()),
-                ptr::null(),
+                c_str_or_null(&cert_filename),
+                c_str_or_null(&key_filename),
+                c_str_or_null(&root_cert_filename),
                 ptr::null(),
                 default_callback,
                 default_ctx,
@@ -101,12 +100,16 @@ impl QuicCtx {
             }
         }
 
-        if let Some((format, chain)) = config.cert_chain {
-            quic.set_tls_cert_chain(chain, format)?;
+        if let Some((format, chain)) = config.certificate_chain {
+            quic.set_tls_certificate_chain(chain, format)?;
         }
 
-        if let Some((format, key)) = config.key {
-            quic.set_tls_key(key, format)?;
+        if let Some((format, key)) = config.private_key {
+            quic.set_tls_private_key(key, format)?;
+        }
+
+        if let Some((format, certs)) = config.root_certificates {
+            quic.set_tls_root_certificates(certs, format)?;
         }
 
         if let Some(handler) = config.verify_certificate_handler.take() {
@@ -192,32 +195,12 @@ impl QuicCtx {
     }
 
     /// Sets the tls certificate chain.
-    fn set_tls_cert_chain(&mut self, chain: Vec<Vec<u8>>, format: FileFormat) -> Result<(), Error> {
-        let certs = match format {
-            FileFormat::DER => chain,
-            FileFormat::PEM => {
-                let mut certs = Vec::with_capacity(chain.len());
-                for cert in chain {
-                    certs.push(X509::from_pem(&cert)?.to_der()?);
-                }
-                certs
-            }
-        };
-
-        let mut certs = certs
-            .into_iter()
-            .map(|mut cert| {
-                let len = cert.len();
-                let base = cert.as_mut_ptr();
-                mem::forget(cert);
-
-                ptls_iovec_t { len, base }
-            })
-            .collect::<Vec<_>>();
-
-        let len = certs.len();
-        let certs_ptr = certs.as_mut_ptr();
-        mem::forget(certs);
+    fn set_tls_certificate_chain(
+        &mut self,
+        chain: Vec<Vec<u8>>,
+        format: FileFormat,
+    ) -> Result<(), Error> {
+        let (certs_ptr, len) = make_certs_iovec(chain, format)?;
 
         unsafe {
             picoquic_set_tls_certificate_chain(self.as_ptr(), certs_ptr, len);
@@ -226,8 +209,29 @@ impl QuicCtx {
         Ok(())
     }
 
-    /// Sets the tls key.
-    fn set_tls_key(&mut self, key: Vec<u8>, format: FileFormat) -> Result<(), Error> {
+    /// Sets the tls root certificates.
+    fn set_tls_root_certificates(
+        &mut self,
+        certs: Vec<Vec<u8>>,
+        format: FileFormat,
+    ) -> Result<(), Error> {
+        let (certs_ptr, len) = make_certs_iovec(certs, format)?;
+
+        let res= unsafe {
+            picoquic_set_tls_root_certificates(self.as_ptr(), certs_ptr, len)
+        };
+
+        if res == -1 {
+            bail!("Error at loading a root certificate")
+        } else if res == -2 {
+            bail!("Error at adding a root certificate, maybe a duplicate?")
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Sets the tls private key.
+    fn set_tls_private_key(&mut self, key: Vec<u8>, format: FileFormat) -> Result<(), Error> {
         let mut key = match format {
             FileFormat::DER => key,
             FileFormat::PEM => PKey::private_key_from_pem(&key)?.private_key_to_der()?,
@@ -254,6 +258,39 @@ impl Drop for QuicCtx {
             picoquic_free(self.quic);
         }
     }
+}
+
+fn make_certs_iovec(
+    certs: Vec<Vec<u8>>,
+    format: FileFormat,
+) -> Result<(*mut ptls_iovec_t, usize), Error> {
+    let certs = match format {
+        FileFormat::DER => certs,
+        FileFormat::PEM => {
+            let mut res = Vec::with_capacity(certs.len());
+            for cert in certs {
+                res.push(X509::from_pem(&cert)?.to_der()?);
+            }
+            res
+        }
+    };
+
+    let mut certs = certs
+        .into_iter()
+        .map(|mut cert| {
+            let len = cert.len();
+            let base = cert.as_mut_ptr();
+            mem::forget(cert);
+
+            ptls_iovec_t { len, base }
+        })
+        .collect::<Vec<_>>();
+
+    let len = certs.len();
+    let certs_ptr = certs.as_mut_ptr();
+    mem::forget(certs);
+
+    Ok((certs_ptr, len))
 }
 
 pub fn socket_addr_from_c(sock_addr: *mut picoquic::sockaddr, sock_len: i32) -> SocketAddr {

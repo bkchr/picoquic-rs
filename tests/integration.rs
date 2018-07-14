@@ -36,8 +36,8 @@ fn get_test_certs_path() -> String {
 
 fn get_test_config() -> Config {
     let mut config = Config::new();
-    config.set_cert_chain_filename(format!("{}device.test.crt", get_test_certs_path()));
-    config.set_key_filename(format!("{}device.key", get_test_certs_path()));
+    config.set_certificate_chain_filename(format!("{}device.test.crt", get_test_certs_path()));
+    config.set_private_key_filename(format!("{}device.key", get_test_certs_path()));
     config
 }
 
@@ -48,8 +48,11 @@ fn create_context_and_evt_loop_with_default_config() -> (Context, Core) {
 fn create_context_and_evt_loop(config: Config) -> (Context, Core) {
     let evt_loop = Core::new().expect("creates event loop");
 
-    let context = Context::new(&([0, 0, 0, 0], 0).into(), &evt_loop.handle(), config)
-        .expect("creates quic context");
+    let context = Context::new(
+        &([0, 0, 0, 0], 0).into(),
+        &evt_loop.handle(),
+        config,
+    ).expect("creates quic context");
 
     (context, evt_loop)
 }
@@ -487,8 +490,8 @@ fn verify_certificate_callback_is_called_and_certificate_is_verified(
 
     let mut client_config = get_test_config();
     client_config.set_verify_certificate_handler(call_counter.clone());
-    client_config.set_cert_chain_filename(client_cert);
-    client_config.set_key_filename(client_key);
+    client_config.set_certificate_chain_filename(client_cert);
+    client_config.set_private_key_filename(client_key);
 
     let server_call_counter = call_counter.clone();
     let addr = start_server_that_sends_received_data_back(move || {
@@ -550,10 +553,10 @@ fn set_certificate_and_key_from_memory() {
         let key = include_bytes!("certs/device.key");
 
         let mut config = get_test_config();
-        config.cert_chain_filename = None;
-        config.key_filename = None;
-        config.set_cert_chain(vec![cert.to_vec()], FileFormat::PEM);
-        config.set_key(key.to_vec(), FileFormat::PEM);
+        config.certificate_chain_filename = None;
+        config.private_key_filename = None;
+        config.set_certificate_chain(vec![cert.to_vec()], FileFormat::PEM);
+        config.set_private_key(key.to_vec(), FileFormat::PEM);
         config
     });
 }

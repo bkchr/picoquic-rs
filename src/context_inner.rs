@@ -125,7 +125,7 @@ impl ContextInner {
                 con.delete();
                 break;
             } else {
-                match con.create_and_prepare_packet(&mut self.buffer, current_time) {
+                match con.prepare_packet(&mut self.buffer, current_time) {
                     Ok(Some(len)) => {
                         let _ = self.socket.send_to(&self.buffer[..len], &con.peer_addr());
                     }

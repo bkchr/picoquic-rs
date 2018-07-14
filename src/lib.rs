@@ -89,8 +89,8 @@ fn main() {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
 
     let mut config = Config::new();
-    config.set_cert_chain_filename(format!("{}/examples/cert.pem", manifest_dir));
-    config.set_key_filename(format!("{}/examples/key.pem", manifest_dir));
+    config.set_certificate_chain_filename(format!("{}/examples/cert.pem", manifest_dir));
+    config.set_private_key_filename(format!("{}/examples/key.pem", manifest_dir));
 
     let server = Context::new(&([0, 0, 0, 0], 22222).into(), &evt_loop.handle(), config).unwrap();
 
@@ -171,6 +171,7 @@ mod config;
 mod connection;
 mod context;
 mod context_inner;
+#[macro_use]
 mod error;
 mod ffi;
 mod stream;

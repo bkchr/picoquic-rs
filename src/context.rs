@@ -20,6 +20,8 @@ pub struct Context {
 
 impl Context {
     /// Creates a new `Context`.
+    ///
+    /// name - Will be used as SNI for TLS.
     pub fn new(
         listen_address: &SocketAddr,
         handle: &Handle,
