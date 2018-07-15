@@ -29,6 +29,8 @@ use openssl::stack::StackRef;
 use openssl::x509::store::X509StoreBuilder;
 use openssl::x509::{X509, X509Ref};
 
+const TEST_SERVER_NAME: &str = "picoquic.test";
+
 fn get_test_certs_path() -> String {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
     format!("{}/tests/certs/", manifest_dir)
@@ -38,6 +40,7 @@ fn get_test_config() -> Config {
     let mut config = Config::new();
     config.set_certificate_chain_filename(format!("{}device.test.crt", get_test_certs_path()));
     config.set_private_key_filename(format!("{}device.key", get_test_certs_path()));
+    config.set_root_certificate_filename(format!("{}ca.crt", get_test_certs_path()));
     config
 }
 
@@ -48,11 +51,8 @@ fn create_context_and_evt_loop_with_default_config() -> (Context, Core) {
 fn create_context_and_evt_loop(config: Config) -> (Context, Core) {
     let evt_loop = Core::new().expect("creates event loop");
 
-    let context = Context::new(
-        &([0, 0, 0, 0], 0).into(),
-        &evt_loop.handle(),
-        config,
-    ).expect("creates quic context");
+    let context = Context::new(&([0, 0, 0, 0], 0).into(), &evt_loop.handle(), config)
+        .expect("creates quic context");
 
     (context, evt_loop)
 }
@@ -127,7 +127,7 @@ fn client_connects_creates_stream_and_sends_data<F, T, C>(
     let (mut context, mut evt_loop) = create_context_and_evt_loop(client_config);
 
     let con = evt_loop
-        .run(context.new_connection(([127, 0, 0, 1], addr.port()).into()))
+        .run(context.new_connection(([127, 0, 0, 1], addr.port()).into(), TEST_SERVER_NAME))
         .expect("creates connection");
     assert_eq!(con.get_type(), ConnectionType::Outgoing);
 
@@ -221,7 +221,7 @@ fn empty_stream_reset_and_no_more_send_on_drop_inner() {
     let (mut context, mut evt_loop) = create_context_and_evt_loop_with_default_config();
 
     let mut con = evt_loop
-        .run(context.new_connection(([127, 0, 0, 1], addr.port()).into()))
+        .run(context.new_connection(([127, 0, 0, 1], addr.port()).into(), TEST_SERVER_NAME))
         .expect("creates connection");
 
     let stream = evt_loop
@@ -236,10 +236,7 @@ fn empty_stream_reset_and_no_more_send_on_drop_inner() {
         .run(stream.into_future().map_err(|(e, _)| e))
         .unwrap();
 
-    assert!(match result {
-        None => true,
-        _ => false,
-    });
+    assert_eq!(result, None);
     assert!(stream.start_send(BytesMut::from("error")).is_err());
     assert!(stream.is_reset());
 }
@@ -266,7 +263,7 @@ fn none_empty_stream_set_fin_bit_on_drop_inner() {
     let (mut context, mut evt_loop) = create_context_and_evt_loop_with_default_config();
 
     let mut con = evt_loop
-        .run(context.new_connection(([127, 0, 0, 1], addr.port()).into()))
+        .run(context.new_connection(([127, 0, 0, 1], addr.port()).into(), TEST_SERVER_NAME))
         .expect("creates connection");
 
     let stream = evt_loop
@@ -335,7 +332,7 @@ fn open_multiple_streams_sends_data_and_recvs() {
     let (mut context, mut evt_loop) = create_context_and_evt_loop_with_default_config();
 
     let mut con = evt_loop
-        .run(context.new_connection(([127, 0, 0, 1], addr.port()).into()))
+        .run(context.new_connection(([127, 0, 0, 1], addr.port()).into(), TEST_SERVER_NAME))
         .expect("creates connection");
 
     let mut streams = Vec::new();
@@ -393,7 +390,7 @@ where
     let (mut context, mut evt_loop) = create_context_and_evt_loop_with_default_config();
 
     let con = evt_loop
-        .run(context.new_connection(([127, 0, 0, 1], addr.port()).into()))
+        .run(context.new_connection(([127, 0, 0, 1], addr.port()).into(), TEST_SERVER_NAME))
         .expect("creates connection");
 
     let stream = evt_loop
@@ -505,7 +502,7 @@ fn verify_certificate_callback_is_called_and_certificate_is_verified(
     let (mut context, mut evt_loop) = create_context_and_evt_loop(client_config);
 
     let mut con = evt_loop
-        .run(context.new_connection(([127, 0, 0, 1], addr.port()).into()))
+        .run(context.new_connection(([127, 0, 0, 1], addr.port()).into(), TEST_SERVER_NAME))
         .expect("creates connection");
 
     let stream = evt_loop

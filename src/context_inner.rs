@@ -33,7 +33,11 @@ pub struct ContextInner {
     /// Picoquic requires to be woken up to handle resend,
     /// drop of connections(because of inactivity), etc..
     timer: Timeout,
-    recv_connect: UnboundedReceiver<(SocketAddr, oneshot::Sender<Result<Connection, Error>>)>,
+    recv_connect: UnboundedReceiver<(
+        SocketAddr,
+        String,
+        oneshot::Sender<Result<Connection, Error>>,
+    )>,
     /// The keep alive interval for client connections
     client_keep_alive_interval: Option<Duration>,
 }
@@ -89,11 +93,12 @@ impl ContextInner {
         loop {
             match self.recv_connect.poll() {
                 Err(_) | Ok(NotReady) | Ok(Ready(None)) => break,
-                Ok(Ready(Some((addr, sender)))) => {
+                Ok(Ready(Some((addr, server_name, sender)))) => {
                     let ctx = match Connection::new(
                         &self.quic,
                         addr,
                         self.local_addr(),
+                        server_name,
                         current_time,
                         self.client_keep_alive_interval,
                         sender,
@@ -320,14 +325,26 @@ unsafe extern "C" fn new_connection_callback(
 
 #[derive(Clone)]
 pub struct NewConnectionHandle {
-    send: UnboundedSender<(SocketAddr, oneshot::Sender<Result<Connection, Error>>)>,
+    send: UnboundedSender<(
+        SocketAddr,
+        String,
+        oneshot::Sender<Result<Connection, Error>>,
+    )>,
 }
 
 impl NewConnectionHandle {
-    pub fn new_connection(&mut self, addr: SocketAddr) -> NewConnectionFuture {
+    /// Creates a new connection to the given server.
+    ///
+    /// addr - The address of the server.
+    /// server_name - The name of the server that will be used by TLS to verify the certificate.
+    pub fn new_connection<T: Into<String>>(
+        &mut self,
+        addr: SocketAddr,
+        server_name: T,
+    ) -> NewConnectionFuture {
         let (sender, recv) = oneshot::channel();
 
-        let _ = self.send.unbounded_send((addr, sender));
+        let _ = self.send.unbounded_send((addr, server_name.into(), sender));
 
         NewConnectionFuture { recv }
     }

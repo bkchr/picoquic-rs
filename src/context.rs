@@ -48,8 +48,15 @@ impl Context {
     }
 
     /// Connects to the given address and returns a future that resolves into a `Connection`.
-    pub fn new_connection(&mut self, addr: SocketAddr) -> NewConnectionFuture {
-        self.new_connection_handle.new_connection(addr)
+    ///
+    /// addr - Address of the server.
+    /// server_name - The name of the server that will be used by TLS to verify the certificate.
+    pub fn new_connection<T: Into<String>>(
+        &mut self,
+        addr: SocketAddr,
+        server_name: T,
+    ) -> NewConnectionFuture {
+        self.new_connection_handle.new_connection(addr, server_name)
     }
 
     /// Returns the handle to create new connections.

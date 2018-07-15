@@ -46,7 +46,7 @@ fn main() {
     let mut client = Context::new(&([0, 0, 0, 0], 0).into(), &evt_loop.handle(), config).unwrap();
 
     let mut con = evt_loop
-        .run(client.new_connection(([127, 0, 0, 1], 22222).into()))
+        .run(client.new_connection(([127, 0, 0, 1], 22222).into(), "server.test"))
         .unwrap();
 
     let stream = evt_loop.run(con.new_bidirectional_stream()).unwrap();

@@ -32,6 +32,7 @@ impl Connection {
         quic: &QuicCtx,
         server_addr: SocketAddr,
         current_time: u64,
+        server_name: String,
     ) -> Result<Connection, Error> {
         assert!(
             !server_addr.ip().is_unspecified(),
@@ -40,13 +41,15 @@ impl Connection {
 
         let server_addr = SockAddr::from(server_addr);
 
+        let server_name = CString::new(server_name)?;
+
         let cnx = unsafe {
             picoquic_create_client_cnx(
                 quic.as_ptr(),
                 server_addr.as_ptr() as *mut picoquic::sockaddr,
                 current_time,
                 0,
-                ptr::null_mut(),
+                server_name.as_c_str().as_ptr(),
                 ptr::null_mut(),
                 None,
                 ptr::null_mut(),
@@ -340,6 +343,11 @@ mod tests {
     #[test]
     #[should_panic(expected = "server address must not be unspecified!")]
     fn do_not_accept_unspecified_ip_address() {
-        let _ = Connection::new(&QuicCtx::dummy(), ([0, 0, 0, 0], 12345).into(), 0);
+        let _ = Connection::new(
+            &QuicCtx::dummy(),
+            ([0, 0, 0, 0], 12345).into(),
+            0,
+            "server".into(),
+        );
     }
 }

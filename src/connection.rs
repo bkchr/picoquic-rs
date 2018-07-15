@@ -166,11 +166,12 @@ impl Connection {
         quic: &QuicCtx,
         peer_addr: SocketAddr,
         local_addr: SocketAddr,
+        server_name: String,
         current_time: u64,
         keep_alive_interval: Option<Duration>,
         created_sender: oneshot::Sender<Result<Connection, Error>>,
     ) -> Result<(Rc<RefCell<Context>>), Error> {
-        let cnx = ffi::Connection::new(quic, peer_addr, current_time)?;
+        let cnx = ffi::Connection::new(quic, peer_addr, current_time, server_name)?;
 
         let (builder, ctx, _) =
             Self::create_builder(cnx, peer_addr, local_addr, true, keep_alive_interval);
