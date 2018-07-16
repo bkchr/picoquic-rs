@@ -239,7 +239,7 @@ impl Connection {
 pub(crate) struct Context {
     send_msg: UnboundedSender<Message>,
     close_recv: oneshot::Receiver<()>,
-    recv_create_stream: UnboundedReceiver<(stream::Type, oneshot::Sender<Stream>)>,
+    recv_create_stream: UnboundedReceiver<(stream::Type, oneshot::Sender<Result<Stream, Error>>)>,
     streams: HashMap<stream::Id, stream::Context>,
     cnx: ffi::Connection,
     closed: bool,
@@ -333,7 +333,7 @@ impl Context {
                     let (stream, ctx) = Stream::new(id, self.cnx, self.local_addr, self.is_client);
                     assert!(self.streams.insert(id, ctx).is_none());
 
-                    let _ = sender.send(stream);
+                    let _ = sender.send(Ok(stream));
                 }
             }
         }
@@ -374,6 +374,10 @@ impl Context {
             self.streams
                 .values_mut()
                 .for_each(|s| s.handle_connection_error(err()));
+
+            while let Ok(Ready(Some((_, sender)))) = self.recv_create_stream.poll() {
+                let _ = sender.send(Err(err()));
+            }
 
             match self.wait_for_ready_state.take() {
                 Some((_, send)) => {
@@ -451,7 +455,7 @@ unsafe extern "C" fn recv_data_callback(
 /// A handle to create new `Stream`s for a connection.
 #[derive(Clone)]
 pub struct NewStreamHandle {
-    send: UnboundedSender<(stream::Type, oneshot::Sender<Stream>)>,
+    send: UnboundedSender<(stream::Type, oneshot::Sender<Result<Stream, Error>>)>,
 }
 
 impl NewStreamHandle {
@@ -477,7 +481,7 @@ impl NewStreamHandle {
 /// A future that resolves to a `Stream`.
 /// This future is created by the `NewStreamHandle`.
 pub struct NewStreamFuture {
-    recv: oneshot::Receiver<Stream>,
+    recv: oneshot::Receiver<Result<Stream, Error>>,
 }
 
 impl Future for NewStreamFuture {
@@ -485,6 +489,12 @@ impl Future for NewStreamFuture {
     type Error = Error;
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        self.recv.poll().map_err(|_| ErrorKind::Unknown.into())
+        self.recv
+            .poll()
+            .map_err(|_| ErrorKind::Unknown.into())
+            .and_then(|r| match r {
+                Ready(v) => v.map(|i| Ready(i)),
+                NotReady => Ok(NotReady),
+            })
     }
 }
