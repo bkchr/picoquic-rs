@@ -194,28 +194,29 @@ impl Context {
 
     fn reset(&mut self) {
         self.finished = true;
-        self.send_msg.close();
         unsafe {
             picoquic_reset_stream(self.cnx.as_ptr(), self.id, 0);
         }
     }
 
     pub fn recv_data(&mut self, data: &[u8], event: picoquic_call_back_event_t) {
-        if self.finished {
-            error!("stream({}) received data after being finished!", self.id);
-        } else if event == picoquic::picoquic_call_back_event_t_picoquic_callback_stream_reset {
-            self.reset();
+        if !data.is_empty() {
+            if self.finished {
+                error!("stream({}) received data after being finished!", self.id);
+            } else {
+                let data = BytesMut::from(data);
+
+                let _ = self.recv_msg.unbounded_send(Message::Data(data));
+            }
+        }
+
+        if event == picoquic::picoquic_call_back_event_t_picoquic_callback_stream_reset {
+            self.finished = true;
             let _ = self.recv_msg.unbounded_send(Message::Reset);
         } else if event == picoquic::picoquic_call_back_event_t_picoquic_callback_stop_sending {
             self.stop_sending = true;
             self.send_msg.close();
-        } else {
-            let data = BytesMut::from(data);
-
-            let _ = self.recv_msg.unbounded_send(Message::Data(data));
-        }
-
-        if event == picoquic::picoquic_call_back_event_t_picoquic_callback_stream_fin {
+        } else if event == picoquic::picoquic_call_back_event_t_picoquic_callback_stream_fin {
             let _ = self.recv_msg.unbounded_send(Message::Close);
             self.finished = true;
         }
@@ -246,6 +247,7 @@ impl Context {
 
     fn close(&mut self) {
         self.finished = true;
+        self.stop_sending = true;
         self.send_msg.close();
 
         if self.data_send {
@@ -302,7 +304,7 @@ impl Future for Context {
                 }
                 Some(Message::Error(_)) => {}
                 None => {
-                    if self.finished {
+                    if self.finished && self.stop_sending {
                         return Ok(Ready(()));
                     } else {
                         return Ok(NotReady);

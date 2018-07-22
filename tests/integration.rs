@@ -285,10 +285,7 @@ fn none_empty_stream_set_fin_bit_on_drop_inner() {
     let (result, stream) = evt_loop
         .run(stream.into_future().map_err(|(e, _)| e))
         .unwrap();
-    assert!(match result {
-        None => true,
-        _ => false,
-    });
+    assert_eq!(result, None);
 
     assert!(!stream.is_reset());
 }
