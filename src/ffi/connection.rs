@@ -63,12 +63,12 @@ impl Connection {
         Ok(Connection { cnx })
     }
 
-    pub fn as_ptr(&self) -> *mut picoquic_cnx_t {
+    pub fn as_ptr(self) -> *mut picoquic_cnx_t {
         self.cnx
     }
 
     /// Returns the peer address of this connection.
-    pub fn peer_addr(&self) -> SocketAddr {
+    pub fn peer_addr(self) -> SocketAddr {
         let mut addr_len = 0;
         let mut addr: *mut picoquic::sockaddr = ptr::null_mut();
 
@@ -80,7 +80,7 @@ impl Connection {
     }
 
     /// Returns the local address of this connection.
-    pub fn local_addr(&self) -> SocketAddr {
+    pub fn local_addr(self) -> SocketAddr {
         let mut addr_len = 0;
         let mut addr: *mut picoquic::sockaddr = ptr::null_mut();
 
@@ -98,7 +98,7 @@ impl Connection {
     /// # Returns
     /// The length of the `Packet` in the buffer or `None` if the packet does not contains any data.
     pub fn prepare_packet(
-        &self,
+        self,
         buffer: &mut [u8],
         current_time: u64,
     ) -> Result<Option<usize>, Error> {
@@ -133,22 +133,22 @@ impl Connection {
         }
     }
 
-    pub fn is_disconnected(&self) -> bool {
+    pub fn is_disconnected(self) -> bool {
         self.state() == picoquic_state_enum_picoquic_state_disconnected
     }
 
     /// Is the connection ready to be used?
-    pub fn is_ready(&self) -> bool {
+    pub fn is_ready(self) -> bool {
         let state = self.state();
         state == picoquic_state_enum_picoquic_state_client_ready
             || state == picoquic_state_enum_picoquic_state_server_ready
     }
 
-    fn state(&self) -> u32 {
+    fn state(self) -> u32 {
         unsafe { picoquic_get_cnx_state(self.cnx) }
     }
 
-    pub fn close(&self) {
+    pub fn close(self) {
         //TODO maybe replace 0 with an appropriate error code
         unsafe {
             picoquic_close(self.cnx, 0);
@@ -182,7 +182,7 @@ impl Connection {
         id
     }
 
-    pub fn enable_keep_alive(&self, interval: Duration) {
+    pub fn enable_keep_alive(self, interval: Duration) {
         let interval = interval.as_micro_seconds();
         unsafe {
             picoquic_enable_keep_alive(self.cnx, interval);
@@ -190,7 +190,7 @@ impl Connection {
     }
 
     /// Returns the local connection id for this connection.
-    pub fn local_id(&self) -> connection::Id {
+    pub fn local_id(self) -> connection::Id {
         unsafe {
             let id = picoquic_get_local_cnxid(self.as_ptr());
             picoquic_val64_connection_id(id)
@@ -198,7 +198,7 @@ impl Connection {
     }
 
     /// Returns the type of this connection.
-    pub fn con_type(&self) -> ConnectionType {
+    pub fn con_type(self) -> ConnectionType {
         unsafe {
             if picoquic_is_client(self.as_ptr()) == 1 {
                 ConnectionType::Outgoing
@@ -210,7 +210,7 @@ impl Connection {
 
     /// Checks if the connection had an error.
     /// The returned closure, will always construct the same error.
-    pub fn error(&self) -> Option<Box<Fn() -> Error>> {
+    pub fn error(self) -> Option<Box<Fn() -> Error>> {
         let error_code = unsafe {
             let error = picoquic_get_local_error(self.as_ptr());
             if error != 0 {

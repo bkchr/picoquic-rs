@@ -24,6 +24,12 @@ use futures::sync::oneshot;
 use futures::Async::{NotReady, Ready};
 use futures::{task, Future, Poll, Stream};
 
+type NewConnectionMsg = (
+    SocketAddr,
+    String,
+    oneshot::Sender<Result<Connection, Error>>,
+);
+
 pub struct ContextInner {
     socket: UdpSocket,
     context: Rc<RefCell<CContext>>,
@@ -33,11 +39,7 @@ pub struct ContextInner {
     /// Picoquic requires to be woken up to handle resend,
     /// drop of connections(because of inactivity), etc..
     timer: Timeout,
-    recv_connect: UnboundedReceiver<(
-        SocketAddr,
-        String,
-        oneshot::Sender<Result<Connection, Error>>,
-    )>,
+    recv_connect: UnboundedReceiver<NewConnectionMsg>,
     /// The keep alive interval for client connections
     client_keep_alive_interval: Option<Duration>,
 }
@@ -57,8 +59,8 @@ impl ContextInner {
     > {
         let (client_keep_alive_interval, server_keep_alive_interval) =
             match config.keep_alive_sender {
-                Role::Client => (config.keep_alive_interval.map(|v| v.clone()), None),
-                Role::Server => (None, config.keep_alive_interval.map(|v| v.clone())),
+                Role::Client => (config.keep_alive_interval, None),
+                Role::Server => (None, config.keep_alive_interval),
             };
 
         let (send, recv) = unbounded();
@@ -118,9 +120,9 @@ impl ContextInner {
 
     /// Iterates over all connections for data that is ready and sends it.
     fn send_connection_packets(&mut self, current_time: u64) {
-        let mut itr = self.quic.connection_iter();
+        let itr = self.quic.connection_iter();
 
-        while let Some(con) = itr.next() {
+        for con in itr {
             if self.socket.poll_write().is_not_ready() {
                 // The socket is not ready to send data
                 break;
@@ -171,9 +173,9 @@ impl ContextInner {
     }
 
     fn send_stateless_packets(&mut self) {
-        let mut itr = self.quic.stateless_packet_iter();
+        let itr = self.quic.stateless_packet_iter();
 
-        while let Some(packet) = itr.next() {
+        for packet in itr {
             if self.socket.poll_write().is_not_ready() {
                 // The socket is not ready to send data
                 break;
@@ -256,7 +258,7 @@ impl CContext {
         send_con: UnboundedSender<Connection>,
         server_keep_alive_interval: Option<Duration>,
     ) -> (Rc<RefCell<CContext>>, *mut c_void) {
-        let mut ctx = Rc::new(RefCell::new(CContext {
+        let ctx = Rc::new(RefCell::new(CContext {
             connections: Vec::new(),
             send_con,
             server_keep_alive_interval,
@@ -264,7 +266,7 @@ impl CContext {
 
         let c_ctx = Rc::into_raw(ctx.clone()) as *mut c_void;
 
-        assert_eq!(2, Rc::strong_count(&mut ctx));
+        assert_eq!(2, Rc::strong_count(&ctx));
 
         (ctx, c_ctx)
     }
@@ -325,11 +327,7 @@ unsafe extern "C" fn new_connection_callback(
 
 #[derive(Clone)]
 pub struct NewConnectionHandle {
-    send: UnboundedSender<(
-        SocketAddr,
-        String,
-        oneshot::Sender<Result<Connection, Error>>,
-    )>,
+    send: UnboundedSender<NewConnectionMsg>,
 }
 
 impl NewConnectionHandle {
@@ -359,6 +357,6 @@ impl Future for NewConnectionFuture {
     type Error = Error;
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        try_ready!(self.recv.poll()).map(|v| Ready(v))
+        try_ready!(self.recv.poll()).map(Ready)
     }
 }

@@ -7,12 +7,17 @@ use ffi::verify_certificate;
 use picoquic_sys::picoquic::{
     self, picoquic_create, picoquic_current_time, picoquic_free, picoquic_get_next_wake_delay,
     picoquic_incoming_packet, picoquic_quic_t, picoquic_set_client_authentication,
-    picoquic_set_tls_certificate_chain, picoquic_set_tls_key, picoquic_stream_data_cb_fn,
-    ptls_iovec_t, picoquic_set_tls_root_certificates
+    picoquic_set_tls_certificate_chain, picoquic_set_tls_key, picoquic_set_tls_root_certificates,
+    picoquic_stream_data_cb_fn, ptls_iovec_t,
 };
 
 use std::{
-    ffi::CString, mem, net::SocketAddr, os::raw::{c_char, c_void}, path::PathBuf, ptr,
+    ffi::CString,
+    mem,
+    net::SocketAddr,
+    os::raw::{c_char, c_void},
+    path::PathBuf,
+    ptr,
     time::{Duration, Instant},
 };
 
@@ -40,7 +45,7 @@ fn c_str_or_null(string: &Option<CString>) -> *const c_char {
     string
         .as_ref()
         .map(|v| v.as_ptr())
-        .unwrap_or_else(|| ptr::null())
+        .unwrap_or_else(ptr::null)
 }
 
 pub struct QuicCtx {
@@ -66,7 +71,7 @@ impl QuicCtx {
             .reset_seed
             .as_mut()
             .map(|v| v.as_mut_ptr())
-            .unwrap_or_else(|| ptr::null_mut());
+            .unwrap_or_else(ptr::null_mut);
 
         let quic = unsafe {
             picoquic_create(
@@ -166,7 +171,7 @@ impl QuicCtx {
         }
     }
 
-    pub fn stateless_packet_iter<'a>(&'a self) -> StatelessPacketIter<'a> {
+    pub fn stateless_packet_iter(& self) -> StatelessPacketIter {
         StatelessPacketIter::new(self.quic)
     }
 
@@ -217,9 +222,7 @@ impl QuicCtx {
     ) -> Result<(), Error> {
         let (certs_ptr, len) = make_certs_iovec(certs, format)?;
 
-        let res= unsafe {
-            picoquic_set_tls_root_certificates(self.as_ptr(), certs_ptr, len)
-        };
+        let res = unsafe { picoquic_set_tls_root_certificates(self.as_ptr(), certs_ptr, len) };
 
         if res == -1 {
             bail!("Error at loading a root certificate")
@@ -299,7 +302,7 @@ pub fn socket_addr_from_c(sock_addr: *mut picoquic::sockaddr, sock_len: i32) -> 
 
     addr.as_inet()
         .map(|v| v.into())
-        .or(addr.as_inet6().map(|v| v.into()))
+        .or_else(|| addr.as_inet6().map(|v| v.into()))
         .expect("neither ipv4 nor ipv6?")
 }
 
@@ -317,7 +320,7 @@ impl MicroSeconds for Duration {
     }
 
     fn as_micro_seconds(&self) -> u64 {
-        self.as_secs() * 1_000_000 + self.subsec_nanos() as u64 / 1000
+        self.as_secs() * 1_000_000 + u64::from(self.subsec_nanos()) / 1000
     }
 }
 

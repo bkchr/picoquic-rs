@@ -71,15 +71,18 @@ unsafe extern "C" fn verify_sign_callback(
     };
 
     if pkey.id() == Id::RSA {
-        if let Err(_) = verifier.set_rsa_padding(Padding::PKCS1_PSS) {
+        if verifier.set_rsa_padding(Padding::PKCS1_PSS).is_err() {
             return PTLS_ERROR_LIBRARY as i32;
         }
 
-        if let Err(_) = verifier.set_rsa_pss_saltlen(RsaPssSaltlen::DIGEST_LENGTH) {
+        if verifier
+            .set_rsa_pss_saltlen(RsaPssSaltlen::DIGEST_LENGTH)
+            .is_err()
+        {
             return PTLS_ERROR_LIBRARY as i32;
         }
 
-        if let Err(_) = verifier.set_rsa_mgf1_md(MessageDigest::sha256()) {
+        if verifier.set_rsa_mgf1_md(MessageDigest::sha256()).is_err() {
             return PTLS_ERROR_LIBRARY as i32;
         }
     }
@@ -150,14 +153,14 @@ fn verify_certificate_callback_impl(
         Ok(false) => {
             return PTLS_ALERT_CERTIFICATE_UNKNOWN;
         }
-        Err(e) => return ssl_error_to_error_code(e),
+        Err(e) => return ssl_error_to_error_code(&e),
     };
 
     // Extract the public key, as we need this public key to verify the signed data in
     // `verify_sign_callback`.
     let pkey = match cert.public_key() {
         Ok(pkey) => pkey,
-        Err(e) => return ssl_error_to_error_code(e),
+        Err(e) => return ssl_error_to_error_code(&e),
     };
 
     unsafe {
@@ -173,7 +176,7 @@ fn get_handler(ptr: *mut c_void) -> Box<Box<VerifyCertificate>> {
 }
 
 /// Converts a openssl error to a picotls error
-fn ssl_error_to_error_code(error: ErrorStack) -> u32 {
+fn ssl_error_to_error_code(error: &ErrorStack) -> u32 {
     if let Some(error) = error.errors().first() {
         match error.code() as i32 {
             X509_V_ERR_OUT_OF_MEM => PTLS_ERROR_NO_MEMORY,
@@ -194,8 +197,8 @@ fn extract_certificates(
     let cert = extract_certificate(certs[0])?;
     let mut chain = Stack::new()?;
 
-    for i in 1..num_certs {
-        chain.push(extract_certificate(certs[i])?)?;
+    for cert in certs.iter().skip(1) {
+        chain.push(extract_certificate(*cert)?)?;
     }
 
     Ok((cert, chain))

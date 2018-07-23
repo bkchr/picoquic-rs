@@ -31,6 +31,7 @@ enum Message {
 }
 
 /// A `Stream` can either be unidirectional or bidirectional.
+#[derive(Copy, Clone)]
 pub enum Type {
     Unidirectional,
     Bidirectional,
@@ -63,10 +64,10 @@ impl Stream {
         let ctx = Context::new(recv_msg, send_recv, id, cnx, is_client_con);
         let stream = Stream {
             recv_msg: recv_send,
-            send_msg: send_msg,
+            send_msg,
             id,
             peer_addr: cnx.peer_addr(),
-            local_addr: local_addr,
+            local_addr,
             stream_reset: false,
         };
 
@@ -139,7 +140,7 @@ impl Sink for Stream {
         self.send_msg
             .start_send(Message::Data(item))
             .map_err(|e| ErrorKind::SendError(extract_data(e.into_inner())).into())
-            .map(|r| r.map(|v| extract_data(v)))
+            .map(|r| r.map(extract_data))
     }
 
     fn poll_complete(&mut self) -> Poll<(), Self::SinkError> {
@@ -232,7 +233,7 @@ impl Context {
         let _ = self.recv_msg.unbounded_send(Message::Close);
     }
 
-    fn send_data(&mut self, data: BytesMut) {
+    fn send_data(&mut self, data: &BytesMut) {
         if is_unidirectional(self.id) && !self.is_unidirectional_send_allowed() {
             //TODO: maybe we should do more than just printing
             error!("tried to send data to incoming unidirectional stream!");
@@ -300,7 +301,7 @@ impl Future for Context {
                     return Ok(Ready(()));
                 }
                 Some(Message::Data(data)) => {
-                    self.send_data(data);
+                    self.send_data(&data);
                 }
                 Some(Message::Error(_)) => {}
                 None => {

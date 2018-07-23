@@ -270,7 +270,7 @@ impl Context {
             send: send_create_stream,
         };
 
-        let mut ctx = Rc::new(RefCell::new(Context {
+        let ctx = Rc::new(RefCell::new(Context {
             send_msg,
             streams: Default::default(),
             cnx,
@@ -292,7 +292,7 @@ impl Context {
         };
 
         // The reference counter needs to be 2 at this point
-        assert_eq!(2, Rc::strong_count(&mut ctx));
+        assert_eq!(2, Rc::strong_count(&ctx));
 
         (ctx, c_ctx, new_stream_handle)
     }
@@ -410,12 +410,9 @@ impl Future for Context {
         self.check_create_stream_requests();
 
         // Check if the connection should be closed
-        match self.close_recv.poll() {
-            Ok(Ready(_)) => {
-                self.close();
-            }
-            _ => {}
-        };
+        if let Ok(Ready(_)) = self.close_recv.poll() {
+            self.close();
+        }
 
         Ok(NotReady)
     }
@@ -493,7 +490,7 @@ impl Future for NewStreamFuture {
             .poll()
             .map_err(|_| ErrorKind::Unknown.into())
             .and_then(|r| match r {
-                Ready(v) => v.map(|i| Ready(i)),
+                Ready(v) => v.map(Ready),
                 NotReady => Ok(NotReady),
             })
     }

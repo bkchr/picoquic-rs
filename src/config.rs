@@ -53,19 +53,7 @@ pub struct Config {
 impl Config {
     /// Creates a new `Config`.
     pub fn new() -> Config {
-        Config {
-            certificate_chain_filename: None,
-            certificate_chain: None,
-            root_certificate_filename: None,
-            root_certificates: None,
-            private_key_filename: None,
-            private_key: None,
-            reset_seed: None,
-            keep_alive_interval: None,
-            keep_alive_sender: Role::Client,
-            client_authentication: false,
-            verify_certificate_handler: None,
-        }
+        Config::default()
     }
 
     /// Will create a new instance by cloning another `Config`.
@@ -78,8 +66,8 @@ impl Config {
             root_certificate_filename: other.root_certificate_filename.clone(),
             private_key_filename: other.private_key_filename.clone(),
             private_key: other.private_key.clone(),
-            reset_seed: other.reset_seed.clone(),
-            keep_alive_interval: other.keep_alive_interval.clone(),
+            reset_seed: other.reset_seed,
+            keep_alive_interval: other.keep_alive_interval,
             keep_alive_sender: other.keep_alive_sender,
             client_authentication: other.client_authentication,
             verify_certificate_handler: None,
@@ -139,5 +127,23 @@ impl Config {
     /// This option will overwrite `set_root_certificate_filename`.
     pub fn set_root_certificates(&mut self, certificates: Vec<Vec<u8>>, format: FileFormat) {
         self.root_certificates = Some((format, certificates));
+    }
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Config {
+            certificate_chain_filename: None,
+            certificate_chain: None,
+            root_certificate_filename: None,
+            root_certificates: None,
+            private_key_filename: None,
+            private_key: None,
+            reset_seed: None,
+            keep_alive_interval: None,
+            keep_alive_sender: Role::Client,
+            client_authentication: false,
+            verify_certificate_handler: None,
+        }
     }
 }

@@ -22,11 +22,13 @@ impl StatelessPacket {
     }
 
     pub fn get_peer_addr(&self) -> SocketAddr {
-        let addr =
-            unsafe { mem::transmute::<&_, *mut picoquic::sockaddr>(&mut (*self.packet).addr_to) };
+        let addr = unsafe {
+            &mut (*self.packet).addr_to as *const picoquic::sockaddr_storage
+                as *mut picoquic::sockaddr
+        };
         let socket_family = unsafe { (*self.packet).addr_to.ss_family };
 
-        let socket_len = if socket_family as i32 == libc::AF_INET {
+        let socket_len = if i32::from(socket_family) == libc::AF_INET {
             mem::size_of::<libc::sockaddr_in>()
         } else {
             mem::size_of::<libc::sockaddr_in6>()
@@ -37,7 +39,10 @@ impl StatelessPacket {
 
     pub fn get_data(&self) -> &[u8] {
         unsafe {
-            slice::from_raw_parts(mem::transmute(&(*self.packet).bytes), (*self.packet).length)
+            slice::from_raw_parts(
+                &(*self.packet).bytes as *const [u8; 1536] as *const u8,
+                (*self.packet).length,
+            )
         }
     }
 }

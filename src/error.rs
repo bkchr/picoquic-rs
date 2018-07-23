@@ -1,4 +1,4 @@
-use std::{fmt, ffi };
+use std::{ffi, fmt};
 
 pub use failure::ResultExt;
 use failure::{self, Backtrace, Context, Fail};
@@ -46,7 +46,7 @@ impl From<ErrorKind> for Error {
 
 impl From<Context<ErrorKind>> for Error {
     fn from(inner: Context<ErrorKind>) -> Error {
-        Error { inner: inner }
+        Error { inner }
     }
 }
 
