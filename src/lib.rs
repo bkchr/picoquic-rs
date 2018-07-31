@@ -107,7 +107,7 @@ fn main() {
             handle.clone().spawn(c.for_each(move |s| {
                 // We print the received message and sent a new one, after that we collect all
                 // remaining messages. The collect is a "hack" that prevents that the `Stream` is
-                // dropped to early.
+                // dropped too early.
                 handle.clone().spawn(
                     s.into_future()
                         .map_err(|_| ())
