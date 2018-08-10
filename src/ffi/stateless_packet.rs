@@ -23,7 +23,7 @@ impl StatelessPacket {
 
     pub fn get_peer_addr(&self) -> SocketAddr {
         let addr = unsafe {
-            &mut (*self.packet).addr_to as *const picoquic::sockaddr_storage
+            mem::transmute::<_, *mut libc::sockaddr_storage>(&mut (*self.packet).addr_to)
                 as *mut picoquic::sockaddr
         };
         let socket_family = unsafe { (*self.packet).addr_to.ss_family };
