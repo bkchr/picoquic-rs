@@ -171,7 +171,7 @@ impl QuicCtx {
         }
     }
 
-    pub fn stateless_packet_iter(& self) -> StatelessPacketIter {
+    pub fn stateless_packet_iter(&self) -> StatelessPacketIter {
         StatelessPacketIter::new(self.quic)
     }
 

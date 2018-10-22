@@ -101,8 +101,10 @@ impl Connection {
         self,
         buffer: &mut [u8],
         current_time: u64,
-    ) -> Result<Option<usize>, Error> {
+    ) -> Result<Option<(usize, SocketAddr)>, Error> {
         let mut send_len = 0;
+        let mut addr_len = 0;
+        let mut addr: *mut picoquic::sockaddr = ptr::null_mut();
         let ret = unsafe {
             picoquic_prepare_packet(
                 self.as_ptr(),
@@ -110,6 +112,10 @@ impl Connection {
                 buffer.as_mut_ptr(),
                 buffer.len(),
                 &mut send_len,
+                &mut addr,
+                &mut addr_len,
+                ptr::null_mut(),
+                ptr::null_mut(),
             )
         };
 
@@ -117,7 +123,7 @@ impl Connection {
             Err(ErrorKind::Disconnected.into())
         } else if ret == 0 {
             if send_len > 0 {
-                Ok(Some(send_len))
+                Ok(Some((send_len, socket_addr_from_c(addr, addr_len).into())))
             } else {
                 Ok(None)
             }

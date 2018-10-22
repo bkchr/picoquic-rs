@@ -16,11 +16,7 @@ fn main() {
 
     let config = Config::new();
 
-    let mut client = Context::new(
-        &([0, 0, 0, 0], 0).into(),
-        &evt_loop.handle(),
-        config,
-    ).unwrap();
+    let mut client = Context::new(&([0, 0, 0, 0], 0).into(), &evt_loop.handle(), config).unwrap();
 
     let mut con = evt_loop
         .run(client.new_connection(([127, 0, 0, 1], 22222).into(), "server.test"))

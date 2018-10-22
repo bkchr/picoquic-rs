@@ -109,11 +109,11 @@ impl FStream for Stream {
     type Error = Error;
 
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
-        match try_ready!(
-            self.recv_msg
-                .poll()
-                .map_err(|_| Error::from(ErrorKind::Unknown))
-        ) {
+        match try_ready!(self
+            .recv_msg
+            .poll()
+            .map_err(|_| Error::from(ErrorKind::Unknown)))
+        {
             Some(Message::Close) | None => Ok(Ready(None)),
             Some(Message::Data(d)) => Ok(Ready(Some(d))),
             Some(Message::Error(err)) => Err(err),

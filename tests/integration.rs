@@ -27,7 +27,7 @@ use bytes::BytesMut;
 use openssl::error::ErrorStack;
 use openssl::stack::StackRef;
 use openssl::x509::store::X509StoreBuilder;
-use openssl::x509::{X509, X509Ref};
+use openssl::x509::{X509Ref, X509};
 
 const TEST_SERVER_NAME: &str = "picoquic.test";
 
@@ -311,7 +311,8 @@ where
                     h.clone()
                         .spawn(send.send_all(recv).map(|_| ()).map_err(|_| ()));
                     Ok(())
-                }).map_err(|_| ()),
+                })
+                .map_err(|_| ()),
             );
 
             Ok(())
@@ -354,7 +355,8 @@ fn open_multiple_streams_sends_data_and_recvs() {
                     .unwrap()
                     .unwrap()
                     .to_vec(),
-            ).unwrap()
+            )
+            .unwrap()
         );
     }
 }
@@ -413,7 +415,8 @@ where
                 .unwrap()
                 .unwrap()
                 .to_vec()
-        ).unwrap()
+        )
+        .unwrap()
     );
 }
 
@@ -517,7 +520,8 @@ fn verify_certificate_callback_is_called_and_certificate_is_verified(
                 .unwrap()
                 .unwrap()
                 .to_vec()
-        ).unwrap()
+        )
+        .unwrap()
     );
 
     assert_eq!(call_counter.get(), 2);

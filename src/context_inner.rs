@@ -133,8 +133,8 @@ impl ContextInner {
                 break;
             } else {
                 match con.prepare_packet(&mut self.buffer, current_time) {
-                    Ok(Some(len)) => {
-                        let _ = self.socket.send_to(&self.buffer[..len], &con.peer_addr());
+                    Ok(Some((len, addr))) => {
+                        let _ = self.socket.send_to(&self.buffer[..len], &addr);
                     }
                     Ok(None) => {}
                     Err(e) => {
