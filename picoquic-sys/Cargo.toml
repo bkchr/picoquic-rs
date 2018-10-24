@@ -16,7 +16,6 @@ Use the `picoquic` crate.
 openssl-sys = "^0.9.28"
 
 [build-dependencies]
-cmake = "0.1"
 cc = { version = "1.0", features = ["parallel"] }
 glob = "0.2"
-bindgen = "0.37"
+bindgen = "0.43"
