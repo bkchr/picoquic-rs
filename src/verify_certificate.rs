@@ -1,9 +1,11 @@
 use {ConnectionId, ConnectionType};
 
-use openssl::error::ErrorStack;
-use openssl::stack::StackRef;
-use openssl::x509::store::X509StoreRef;
-use openssl::x509::{X509Ref, X509StoreContext, X509};
+pub use openssl::{
+    *,
+    error::ErrorStack,
+    stack::StackRef,
+    x509::{store::X509StoreRef, X509Ref, X509StoreContext, X509},
+};
 
 /// The `VerifyCertificate` trait is used by the verify certificate handler, to verify a
 /// certificate.
