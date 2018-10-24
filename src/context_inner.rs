@@ -138,7 +138,7 @@ impl ContextInner {
                     }
                     Ok(None) => {}
                     Err(e) => {
-                        error!("error while sending connections packets: {:?}", e);
+                        debug!("error while sending connections packets: {:?}", e);
                     }
                 };
             }
