@@ -9,10 +9,11 @@ use picoquic_sys::picoquic::{
     picoquic_enable_keep_alive, picoquic_get_cnx_state, picoquic_get_first_cnx,
     picoquic_get_local_addr, picoquic_get_local_cnxid, picoquic_get_local_error,
     picoquic_get_next_cnx, picoquic_get_peer_addr, picoquic_get_remote_error, picoquic_is_client,
-    picoquic_prepare_packet, picoquic_quic_t, picoquic_state_enum_picoquic_state_client_ready,
+    picoquic_is_handshake_error, picoquic_prepare_packet, picoquic_quic_t,
+    picoquic_state_enum_picoquic_state_client_ready,
     picoquic_state_enum_picoquic_state_disconnected,
     picoquic_state_enum_picoquic_state_server_ready, picoquic_val64_connection_id,
-    PICOQUIC_ERROR_DISCONNECTED, PICOQUIC_TLS_HANDSHAKE_FAILED,
+    PICOQUIC_ERROR_DISCONNECTED,
 };
 
 use std::ffi::CString;
@@ -229,9 +230,12 @@ impl Connection {
         if error_code == 0 {
             None
         } else {
-            Some(Box::new(move || match error_code as u32 {
-                PICOQUIC_TLS_HANDSHAKE_FAILED => ErrorKind::TLSHandshakeError.into(),
-                _ => ErrorKind::Unknown.into(),
+            Some(Box::new(move || {
+                if unsafe { picoquic_is_handshake_error(error_code as u16) == 1 } {
+                    ErrorKind::TLSHandshakeError.into()
+                } else {
+                    ErrorKind::Unknown.into()
+                }
             }))
         }
     }
