@@ -22,32 +22,31 @@ fn main() {
 
     println!("Server listening on: {}", server.local_addr());
 
-    evt_loop.block_on_all(
-        server
-            .for_each(|c| {
-                println!("New connection from: {}", c.peer_addr());
+    evt_loop
+        .block_on_all(server.for_each(|c| {
+            println!("New connection from: {}", c.peer_addr());
 
-                tokio::spawn(
-                    c.for_each(move |s| {
-                        // We print the received message and sent a new one, after that we collect all
-                        // remaining messages. The collect is a "hack" that prevents that the `Stream` is
-                        // dropped too early.
-                        tokio::spawn(
-                            s.into_future()
-                                .map_err(|_| ())
-                                .and_then(|(m, s)| {
-                                    println!("Got: {:?}", m);
-                                    s.send(BytesMut::from("hello client")).map_err(|_| ())
-                                })
-                                .and_then(|s| s.collect().map_err(|_| ()))
-                                .map(|_| ()),
-                        );
-                        Ok(())
-                    })
-                    .map_err(|_| ()),
-                );
+            tokio::spawn(
+                c.for_each(move |s| {
+                    // We print the received message and sent a new one, after that we collect all
+                    // remaining messages. The collect is a "hack" that prevents that the `Stream` is
+                    // dropped too early.
+                    tokio::spawn(
+                        s.into_future()
+                            .map_err(|_| ())
+                            .and_then(|(m, s)| {
+                                println!("Got: {:?}", m);
+                                s.send(BytesMut::from("hello client")).map_err(|_| ())
+                            })
+                            .and_then(|s| s.collect().map_err(|_| ()))
+                            .map(|_| ()),
+                    );
+                    Ok(())
+                })
+                .map_err(|_| ()),
+            );
 
-                Ok(())
-            })
-    ).unwrap();
+            Ok(())
+        }))
+        .unwrap();
 }
