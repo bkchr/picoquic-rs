@@ -6,20 +6,27 @@ use picoquic_sys::picoquic::{
     self, picoquic_call_back_event_t, picoquic_cnx_t, picoquic_set_callback,
 };
 
-use futures::sync::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
-use futures::sync::oneshot;
-use futures::Async::{NotReady, Ready};
-use futures::{Future, Poll, Stream as FStream};
+use futures::{
+    sync::{
+        mpsc::{unbounded, UnboundedReceiver, UnboundedSender},
+        oneshot,
+    },
+    Async::{NotReady, Ready},
+    Future, Poll, Stream as FStream,
+};
 
-use std::cell::RefCell;
-use std::collections::hash_map::Entry::{Occupied, Vacant};
-use std::collections::HashMap;
-use std::mem;
-use std::net::SocketAddr;
-use std::os::raw::c_void;
-use std::rc::Rc;
-use std::slice;
-use std::time::Duration;
+use std::{
+    collections::{
+        hash_map::Entry::{Occupied, Vacant},
+        HashMap,
+    },
+    mem,
+    net::SocketAddr,
+    os::raw::c_void,
+    slice,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 pub type Id = u64;
 
@@ -140,7 +147,7 @@ impl Connection {
         len: usize,
         event: picoquic_call_back_event_t,
         keep_alive_interval: Option<Duration>,
-    ) -> (Connection, Rc<RefCell<Context>>) {
+    ) -> (Connection, Arc<Mutex<Context>>) {
         let cnx = ffi::Connection::from(cnx);
 
         let (builder, ctx, c_ctx) = Self::create_builder(
@@ -170,14 +177,15 @@ impl Connection {
         current_time: u64,
         keep_alive_interval: Option<Duration>,
         created_sender: oneshot::Sender<Result<Connection, Error>>,
-    ) -> Result<(Rc<RefCell<Context>>), Error> {
+    ) -> Result<(Arc<Mutex<Context>>), Error> {
         let cnx = ffi::Connection::new(quic, peer_addr, current_time, server_name)?;
 
         let (builder, ctx, _) =
             Self::create_builder(cnx, peer_addr, local_addr, true, keep_alive_interval);
 
         // set the builder and the sender as waiting for ready state payload
-        ctx.borrow_mut()
+        ctx.lock()
+            .unwrap()
             .set_wait_for_ready_state(builder, created_sender);
 
         Ok(ctx)
@@ -189,7 +197,7 @@ impl Connection {
         local_addr: SocketAddr,
         is_client: bool,
         keep_alive_interval: Option<Duration>,
-    ) -> (ConnectionBuilder, Rc<RefCell<Context>>, *mut c_void) {
+    ) -> (ConnectionBuilder, Arc<Mutex<Context>>, *mut c_void) {
         let (sender, msg_recv) = unbounded();
         let (close_send, close_recv) = oneshot::channel();
 
@@ -263,14 +271,14 @@ impl Context {
         close_recv: oneshot::Receiver<()>,
         is_client: bool,
         local_addr: SocketAddr,
-    ) -> (Rc<RefCell<Context>>, *mut c_void, NewStreamHandle) {
+    ) -> (Arc<Mutex<Context>>, *mut c_void, NewStreamHandle) {
         let (send_create_stream, recv_create_stream) = unbounded();
 
         let new_stream_handle = NewStreamHandle {
             send: send_create_stream,
         };
 
-        let ctx = Rc::new(RefCell::new(Context {
+        let ctx = Arc::new(Mutex::new(Context {
             send_msg,
             streams: Default::default(),
             cnx,
@@ -286,13 +294,13 @@ impl Context {
         // Convert the `Context` to a `*mut c_void` and reset the callback to the
         // `recv_data_callback`
         let c_ctx = unsafe {
-            let c_ctx = Rc::into_raw(ctx.clone()) as *mut c_void;
+            let c_ctx = Arc::into_raw(ctx.clone()) as *mut c_void;
             picoquic_set_callback(cnx.as_ptr(), Some(recv_data_callback), c_ctx);
             c_ctx
         };
 
         // The reference counter needs to be 2 at this point
-        assert_eq!(2, Rc::strong_count(&ctx));
+        assert_eq!(2, Arc::strong_count(&ctx));
 
         (ctx, c_ctx, new_stream_handle)
     }
@@ -418,8 +426,8 @@ impl Future for Context {
     }
 }
 
-fn get_context(ctx: *mut c_void) -> Rc<RefCell<Context>> {
-    unsafe { Rc::from_raw(ctx as *mut RefCell<Context>) }
+fn get_context(ctx: *mut c_void) -> Arc<Mutex<Context>> {
+    unsafe { Arc::from_raw(ctx as *mut Mutex<Context>) }
 }
 
 unsafe extern "C" fn recv_data_callback(
@@ -436,13 +444,14 @@ unsafe extern "C" fn recv_data_callback(
     if event == picoquic::picoquic_call_back_event_t_picoquic_callback_close
         || event == picoquic::picoquic_call_back_event_t_picoquic_callback_application_close
     {
-        // when Rc goes out of scope, it will dereference the Context pointer automatically
-        ctx.borrow_mut().check_and_handle_error();
-        ctx.borrow_mut().close();
+        // when Arc goes out of scope, it will dereference the Context pointer automatically
+        let mut ctx = ctx.lock().unwrap();
+        ctx.check_and_handle_error();
+        ctx.close();
     } else {
         let data = slice::from_raw_parts(bytes, length as usize);
 
-        ctx.borrow_mut().recv_data(stream_id, data, event);
+        ctx.lock().unwrap().recv_data(stream_id, data, event);
 
         // the context must not be dereferenced!
         mem::forget(ctx);

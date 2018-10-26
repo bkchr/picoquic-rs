@@ -1,5 +1,4 @@
-use super::connection::ConnectionIter;
-use super::stateless_packet::StatelessPacketIter;
+use super::{connection::ConnectionIter, stateless_packet::StatelessPacketIter, Pointer};
 use config::{Config, FileFormat};
 use error::*;
 use ffi::verify_certificate;
@@ -49,7 +48,7 @@ fn c_str_or_null(string: &Option<CString>) -> *const c_char {
 }
 
 pub struct QuicCtx {
-    quic: *mut picoquic_quic_t,
+    quic: Pointer<picoquic_quic_t>,
     max_delay: Duration,
 }
 
@@ -95,7 +94,7 @@ impl QuicCtx {
         assert!(!quic.is_null());
 
         let mut quic = QuicCtx {
-            quic,
+            quic: Pointer(quic),
             max_delay: Duration::from_secs(10),
         };
 
@@ -130,17 +129,17 @@ impl QuicCtx {
     #[cfg(test)]
     pub fn dummy() -> QuicCtx {
         QuicCtx {
-            quic: ptr::null_mut(),
+            quic: Pointer(ptr::null_mut()),
             max_delay: Duration::from_secs(10),
         }
     }
 
     pub fn as_ptr(&self) -> *mut picoquic_quic_t {
-        self.quic
+        *self.quic
     }
 
     pub fn connection_iter(&self) -> ConnectionIter {
-        ConnectionIter::new(self.quic)
+        ConnectionIter::new(*self.quic)
     }
 
     pub fn incoming_data(
@@ -155,7 +154,7 @@ impl QuicCtx {
 
         let ret = unsafe {
             picoquic_incoming_packet(
-                self.quic,
+                *self.quic,
                 buf.as_mut_ptr(),
                 buf.len() as u32,
                 addr_from.as_ptr() as *mut picoquic::sockaddr,
@@ -172,7 +171,7 @@ impl QuicCtx {
     }
 
     pub fn stateless_packet_iter(&self) -> StatelessPacketIter {
-        StatelessPacketIter::new(self.quic)
+        StatelessPacketIter::new(*self.quic)
     }
 
     /// Returns the next time point at which Picoquic needs to get called again. However, it is
@@ -184,7 +183,7 @@ impl QuicCtx {
     /// Picoquic wants to get called again instantly.
     pub fn get_next_wake_up_time(&self, current_time: u64) -> Option<Instant> {
         let max_delay = self.max_delay.as_micro_seconds() as i64;
-        let wake_up = unsafe { picoquic_get_next_wake_delay(self.quic, current_time, max_delay) };
+        let wake_up = unsafe { picoquic_get_next_wake_delay(*self.quic, current_time, max_delay) };
 
         if wake_up == 0 {
             None
@@ -258,7 +257,7 @@ impl QuicCtx {
 impl Drop for QuicCtx {
     fn drop(&mut self) {
         unsafe {
-            picoquic_free(self.quic);
+            picoquic_free(*self.quic);
         }
     }
 }

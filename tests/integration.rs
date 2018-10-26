@@ -3,31 +3,35 @@ extern crate futures;
 extern crate openssl;
 extern crate picoquic;
 extern crate timebomb;
-extern crate tokio_core;
+extern crate tokio;
 
 use picoquic::{
     default_verify_certificate, Config, Connection, ConnectionId, ConnectionType, Context,
     FileFormat, NewStreamFuture, NewStreamHandle, SType, Stream, VerifyCertificate,
 };
 
-use std::fmt;
-use std::net::SocketAddr;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::mpsc::channel;
-use std::sync::Arc;
-use std::thread;
+use std::{
+    fmt,
+    net::SocketAddr,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        mpsc::channel,
+        Arc,
+    },
+    thread,
+};
 
-use futures::sync::mpsc::unbounded;
-use futures::{Future, Sink, Stream as FStream};
-
-use tokio_core::reactor::{Core, Handle};
+use futures::{sync::mpsc::unbounded, Future, Sink, Stream as FStream};
 
 use bytes::BytesMut;
 
-use openssl::error::ErrorStack;
-use openssl::stack::StackRef;
-use openssl::x509::store::X509StoreBuilder;
-use openssl::x509::{X509Ref, X509};
+use openssl::{
+    error::ErrorStack,
+    stack::StackRef,
+    x509::{store::X509StoreBuilder, X509Ref, X509},
+};
+
+use tokio::runtime::Runtime;
 
 const TEST_SERVER_NAME: &str = "picoquic.test";
 
@@ -44,14 +48,14 @@ fn get_test_config() -> Config {
     config
 }
 
-fn create_context_and_evt_loop_with_default_config() -> (Context, Core) {
+fn create_context_and_evt_loop_with_default_config() -> (Context, Runtime) {
     create_context_and_evt_loop(get_test_config())
 }
 
-fn create_context_and_evt_loop(config: Config) -> (Context, Core) {
-    let evt_loop = Core::new().expect("creates event loop");
+fn create_context_and_evt_loop(config: Config) -> (Context, Runtime) {
+    let evt_loop = Runtime::new().expect("creates event loop");
 
-    let context = Context::new(&([0, 0, 0, 0], 0).into(), &evt_loop.handle(), config)
+    let context = Context::new(&([0, 0, 0, 0], 0).into(), evt_loop.executor(), config)
         .expect("creates quic context");
 
     (context, evt_loop)
@@ -59,31 +63,32 @@ fn create_context_and_evt_loop(config: Config) -> (Context, Core) {
 
 fn start_server_thread_with_default_config<F, R>(create_future: F) -> SocketAddr
 where
-    F: 'static + Send + FnOnce(Context, Handle) -> R,
-    R: Future,
-    <R as Future>::Error: fmt::Debug,
+    F: 'static + Send + FnOnce(Context) -> R,
+    R: Future + Send + 'static,
+    <R as Future>::Item: Send + 'static,
+    <R as Future>::Error: fmt::Debug + Send + 'static,
 {
     start_server_thread(|| get_test_config(), create_future)
 }
 
 fn start_server_thread<F, R, C>(create_config: C, create_future: F) -> SocketAddr
 where
-    F: 'static + Send + FnOnce(Context, Handle) -> R,
-    R: Future,
-    <R as Future>::Error: fmt::Debug,
+    F: 'static + Send + FnOnce(Context) -> R,
+    R: Future + Send + 'static,
+    <R as Future>::Error: fmt::Debug + Send + 'static,
+    <R as Future>::Item: Send + 'static,
     C: 'static + Send + FnOnce() -> Config,
 {
     let (send, recv) = channel();
 
     thread::spawn(move || {
-        let (context, mut evt_loop) = create_context_and_evt_loop(create_config());
+        let (context, evt_loop) = create_context_and_evt_loop(create_config());
 
         send.send(context.local_addr())
             .expect("sends server socket addr");
 
-        let handle = evt_loop.handle();
         evt_loop
-            .run(create_future(context, handle))
+            .block_on_all(create_future(context))
             .expect("event loop spins on server context");
     });
 
@@ -92,7 +97,7 @@ where
 
 #[test]
 fn server_start() {
-    start_server_thread_with_default_config(|c, _| c.for_each(|_| Ok(())));
+    start_server_thread_with_default_config(|c| c.for_each(|_| Ok(())));
 }
 
 fn client_connects_creates_stream_and_sends_data<F, T, C>(
@@ -108,7 +113,7 @@ fn client_connects_creates_stream_and_sends_data<F, T, C>(
     let send_data = "hello server";
     let (send, recv) = unbounded();
 
-    let addr = start_server_thread(create_server_config, move |c, _| {
+    let addr = start_server_thread(create_server_config, move |c| {
         c.for_each(move |c| {
             assert_eq!(c.get_type(), ConnectionType::Incoming);
             let send = send.clone();
@@ -127,12 +132,12 @@ fn client_connects_creates_stream_and_sends_data<F, T, C>(
     let (mut context, mut evt_loop) = create_context_and_evt_loop(client_config);
 
     let con = evt_loop
-        .run(context.new_connection(([127, 0, 0, 1], addr.port()).into(), TEST_SERVER_NAME))
+        .block_on(context.new_connection(([127, 0, 0, 1], addr.port()).into(), TEST_SERVER_NAME))
         .expect("creates connection");
     assert_eq!(con.get_type(), ConnectionType::Outgoing);
 
     let (new_stream, _con) = create_stream(con);
-    let stream = evt_loop.run(new_stream).expect("creates stream");
+    let stream = evt_loop.block_on(new_stream).expect("creates stream");
     check_type(&stream);
 
     assert_eq!(
@@ -143,12 +148,12 @@ fn client_connects_creates_stream_and_sends_data<F, T, C>(
     assert_ne!(stream.peer_addr(), stream.local_addr());
 
     evt_loop
-        .run(stream.send(BytesMut::from(send_data)))
+        .block_on(stream.send(BytesMut::from(send_data)))
         .unwrap();
 
     assert_eq!(
         send_data,
-        evt_loop.run(recv.into_future()).unwrap().0.unwrap()
+        evt_loop.block_on(recv.into_future()).unwrap().0.unwrap()
     );
 }
 
@@ -207,9 +212,9 @@ fn empty_stream_reset_and_no_more_send_on_drop() {
 fn empty_stream_reset_and_no_more_send_on_drop_inner() {
     let send_data = "hello server";
 
-    let addr = start_server_thread_with_default_config(move |c, h| {
+    let addr = start_server_thread_with_default_config(move |c| {
         c.for_each(move |c| {
-            h.spawn(
+            tokio::spawn(
                 c.for_each(move |s| s.into_future().map(|_| ()).map_err(|e| e.0))
                     .map_err(|_| ()),
             );
@@ -221,19 +226,19 @@ fn empty_stream_reset_and_no_more_send_on_drop_inner() {
     let (mut context, mut evt_loop) = create_context_and_evt_loop_with_default_config();
 
     let mut con = evt_loop
-        .run(context.new_connection(([127, 0, 0, 1], addr.port()).into(), TEST_SERVER_NAME))
+        .block_on(context.new_connection(([127, 0, 0, 1], addr.port()).into(), TEST_SERVER_NAME))
         .expect("creates connection");
 
     let stream = evt_loop
-        .run(con.new_bidirectional_stream())
+        .block_on(con.new_bidirectional_stream())
         .expect("creates stream");
 
     let stream = evt_loop
-        .run(stream.send(BytesMut::from(send_data)))
+        .block_on(stream.send(BytesMut::from(send_data)))
         .unwrap();
 
     let (result, mut stream) = evt_loop
-        .run(stream.into_future().map_err(|(e, _)| e))
+        .block_on(stream.into_future().map_err(|(e, _)| e))
         .unwrap();
 
     assert_eq!(result, None);
@@ -249,9 +254,9 @@ fn none_empty_stream_set_fin_bit_on_drop() {
 fn none_empty_stream_set_fin_bit_on_drop_inner() {
     let send_data = "hello server";
 
-    let addr = start_server_thread_with_default_config(move |c, h| {
+    let addr = start_server_thread_with_default_config(move |c| {
         c.for_each(move |c| {
-            h.spawn(
+            tokio::spawn(
                 c.for_each(move |s| s.send(BytesMut::from(send_data)).map(|_| ()))
                     .map_err(|_| ()),
             );
@@ -263,18 +268,18 @@ fn none_empty_stream_set_fin_bit_on_drop_inner() {
     let (mut context, mut evt_loop) = create_context_and_evt_loop_with_default_config();
 
     let mut con = evt_loop
-        .run(context.new_connection(([127, 0, 0, 1], addr.port()).into(), TEST_SERVER_NAME))
+        .block_on(context.new_connection(([127, 0, 0, 1], addr.port()).into(), TEST_SERVER_NAME))
         .expect("creates connection");
 
     let stream = evt_loop
-        .run(
+        .block_on(
             con.new_bidirectional_stream()
-                .and_then(|s| s.send(BytesMut::from(send_data))),
+                .and_then(move |s| s.send(BytesMut::from(send_data))),
         )
         .expect("creates stream");
 
     let (result, stream) = evt_loop
-        .run(stream.into_future().map_err(|(e, _)| e))
+        .block_on(stream.into_future().map_err(|(e, _)| e))
         .unwrap();
 
     assert_eq!(
@@ -283,7 +288,7 @@ fn none_empty_stream_set_fin_bit_on_drop_inner() {
     );
 
     let (result, stream) = evt_loop
-        .run(stream.into_future().map_err(|(e, _)| e))
+        .block_on(stream.into_future().map_err(|(e, _)| e))
         .unwrap();
     assert_eq!(result, None);
 
@@ -294,11 +299,9 @@ fn start_server_that_sends_received_data_back<C>(create_config: C) -> SocketAddr
 where
     C: 'static + Send + FnOnce() -> Config,
 {
-    start_server_thread(create_config, move |c, h| {
+    start_server_thread(create_config, move |c| {
         c.for_each(move |c| {
-            let h = h.clone();
-
-            h.clone().spawn(
+            tokio::spawn(
                 c.for_each(move |s| {
                     // Peer addr and local addr can not be the same
                     assert_ne!(s.peer_addr(), s.local_addr());
@@ -308,8 +311,7 @@ where
 
                     let (send, recv) = s.split();
 
-                    h.clone()
-                        .spawn(send.send_all(recv).map(|_| ()).map_err(|_| ()));
+                    tokio::spawn(send.send_all(recv).map(|_| ()).map_err(|_| ()));
                     Ok(())
                 })
                 .map_err(|_| ()),
@@ -330,28 +332,28 @@ fn open_multiple_streams_sends_data_and_recvs() {
     let (mut context, mut evt_loop) = create_context_and_evt_loop_with_default_config();
 
     let mut con = evt_loop
-        .run(context.new_connection(([127, 0, 0, 1], addr.port()).into(), TEST_SERVER_NAME))
+        .block_on(context.new_connection(([127, 0, 0, 1], addr.port()).into(), TEST_SERVER_NAME))
         .expect("creates connection");
 
     let mut streams = Vec::new();
 
     for i in 0..expected_stream_count {
         let stream = evt_loop
-            .run(con.new_bidirectional_stream())
+            .block_on(con.new_bidirectional_stream())
             .expect("creates stream");
         streams.push(
             evt_loop
-                .run(stream.send(BytesMut::from(format!("{}{}", send_data, i))))
+                .block_on(stream.send(BytesMut::from(format!("{}{}", send_data, i))))
                 .unwrap(),
         );
     }
 
-    for (i, stream) in streams.iter_mut().enumerate() {
+    for (i, stream) in streams.into_iter().enumerate() {
         assert_eq!(
             format!("{}{}", send_data, i),
             String::from_utf8(
                 evt_loop
-                    .run(stream.into_future().map(|(m, _)| m).map_err(|(e, _)| e))
+                    .block_on(stream.into_future().map(|(m, _)| m).map_err(|(e, _)| e))
                     .unwrap()
                     .unwrap()
                     .to_vec(),
@@ -369,7 +371,7 @@ where
     let send_data = "hello server";
 
     let create_stream2 = create_stream.clone();
-    let addr = start_server_thread_with_default_config(move |c, _| {
+    let addr = start_server_thread_with_default_config(move |c| {
         let create_stream = create_stream2;
         c.for_each(move |c| {
             let create_stream = create_stream.clone();
@@ -389,18 +391,18 @@ where
     let (mut context, mut evt_loop) = create_context_and_evt_loop_with_default_config();
 
     let con = evt_loop
-        .run(context.new_connection(([127, 0, 0, 1], addr.port()).into(), TEST_SERVER_NAME))
+        .block_on(context.new_connection(([127, 0, 0, 1], addr.port()).into(), TEST_SERVER_NAME))
         .expect("creates connection");
 
     let stream = evt_loop
-        .run(create_stream(con.get_new_stream_handle()))
+        .block_on(create_stream(con.get_new_stream_handle()))
         .expect("creates stream");
     let _stream = evt_loop
-        .run(stream.send(BytesMut::from(send_data)))
+        .block_on(stream.send(BytesMut::from(send_data)))
         .unwrap();
 
     let (new_stream, _con) = evt_loop
-        .run(
+        .block_on(
             con.into_future()
                 .map(|(m, c)| (m.unwrap(), c))
                 .map_err(|(e, _)| e),
@@ -411,7 +413,7 @@ where
         send_data,
         String::from_utf8(
             evt_loop
-                .run(new_stream.into_future().map(|(m, _)| m).map_err(|(e, _)| e))
+                .block_on(new_stream.into_future().map(|(m, _)| m).map_err(|(e, _)| e))
                 .unwrap()
                 .unwrap()
                 .to_vec()
@@ -502,21 +504,21 @@ fn verify_certificate_callback_is_called_and_certificate_is_verified(
     let (mut context, mut evt_loop) = create_context_and_evt_loop(client_config);
 
     let mut con = evt_loop
-        .run(context.new_connection(([127, 0, 0, 1], addr.port()).into(), TEST_SERVER_NAME))
+        .block_on(context.new_connection(([127, 0, 0, 1], addr.port()).into(), TEST_SERVER_NAME))
         .expect("creates connection");
 
     let stream = evt_loop
-        .run(con.new_bidirectional_stream())
+        .block_on(con.new_bidirectional_stream())
         .expect("creates stream");
     let stream = evt_loop
-        .run(stream.send(BytesMut::from(send_data)))
+        .block_on(stream.send(BytesMut::from(send_data)))
         .unwrap();
 
     assert_eq!(
         send_data,
         &String::from_utf8(
             evt_loop
-                .run(stream.into_future().map(|(m, _)| m).map_err(|(e, _)| e))
+                .block_on(stream.into_future().map(|(m, _)| m).map_err(|(e, _)| e))
                 .unwrap()
                 .unwrap()
                 .to_vec()

@@ -1,4 +1,4 @@
-use std::{ffi, fmt};
+use std::{ffi, fmt, io};
 
 pub use failure::ResultExt;
 use failure::{self, Backtrace, Context, Fail};
@@ -74,6 +74,12 @@ impl From<failure::Error> for Error {
     }
 }
 
+impl From<io::Error> for Error {
+    fn from(e: io::Error) -> Error {
+        ErrorKind::Io(e).into()
+    }
+}
+
 #[derive(Debug, Fail)]
 pub enum ErrorKind {
     #[fail(display = "A network error occurred.")]
@@ -98,6 +104,8 @@ pub enum ErrorKind {
     OpenSSLError,
     #[fail(display = "Error {}", _0)]
     Custom(failure::Error),
+    #[fail(display = "IO error {}", _0)]
+    Io(io::Error),
 }
 
 //FIXME: Remove when upstream provides a better bail macro

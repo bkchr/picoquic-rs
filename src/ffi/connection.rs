@@ -1,4 +1,7 @@
-use super::quic_ctx::{socket_addr_from_c, MicroSeconds, QuicCtx};
+use super::{
+    quic_ctx::{socket_addr_from_c, MicroSeconds, QuicCtx},
+    Pointer,
+};
 use connection;
 use error::*;
 use stream;
@@ -25,7 +28,7 @@ use socket2::SockAddr;
 
 #[derive(Copy, Clone)]
 pub struct Connection {
-    cnx: *mut picoquic_cnx_t,
+    cnx: Pointer<picoquic_cnx_t>,
 }
 
 impl Connection {
@@ -61,11 +64,11 @@ impl Connection {
             Err(ErrorKind::Unknown)?;
         }
 
-        Ok(Connection { cnx })
+        Ok(Connection { cnx: Pointer(cnx) })
     }
 
     pub fn as_ptr(self) -> *mut picoquic_cnx_t {
-        self.cnx
+        *self.cnx
     }
 
     /// Returns the peer address of this connection.
@@ -74,7 +77,7 @@ impl Connection {
         let mut addr: *mut picoquic::sockaddr = ptr::null_mut();
 
         unsafe {
-            picoquic_get_peer_addr(self.cnx, &mut addr, &mut addr_len);
+            picoquic_get_peer_addr(*self.cnx, &mut addr, &mut addr_len);
 
             socket_addr_from_c(addr, addr_len)
         }
@@ -86,7 +89,7 @@ impl Connection {
         let mut addr: *mut picoquic::sockaddr = ptr::null_mut();
 
         unsafe {
-            picoquic_get_local_addr(self.cnx, &mut addr, &mut addr_len);
+            picoquic_get_local_addr(*self.cnx, &mut addr, &mut addr_len);
 
             socket_addr_from_c(addr, addr_len)
         }
@@ -136,7 +139,7 @@ impl Connection {
     /// Deletes the underlying C pointer!
     pub fn delete(self) {
         unsafe {
-            picoquic_delete_cnx(self.cnx);
+            picoquic_delete_cnx(*self.cnx);
         }
     }
 
@@ -152,13 +155,13 @@ impl Connection {
     }
 
     fn state(self) -> u32 {
-        unsafe { picoquic_get_cnx_state(self.cnx) }
+        unsafe { picoquic_get_cnx_state(*self.cnx) }
     }
 
     pub fn close(self) {
         //TODO maybe replace 0 with an appropriate error code
         unsafe {
-            picoquic_close(self.cnx, 0);
+            picoquic_close(*self.cnx, 0);
         }
     }
 
@@ -192,7 +195,7 @@ impl Connection {
     pub fn enable_keep_alive(self, interval: Duration) {
         let interval = interval.as_micro_seconds();
         unsafe {
-            picoquic_enable_keep_alive(self.cnx, interval);
+            picoquic_enable_keep_alive(*self.cnx, interval);
         }
     }
 
@@ -243,7 +246,7 @@ impl Connection {
 
 impl From<*mut picoquic_cnx_t> for Connection {
     fn from(cnx: *mut picoquic_cnx_t) -> Connection {
-        Connection { cnx }
+        Connection { cnx: Pointer(cnx) }
     }
 }
 

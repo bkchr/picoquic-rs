@@ -16,7 +16,7 @@ keywords = ["quic", "future", "tokio", "protocol", "picoquic"]
 repository = "bkchr/picoquic-rs"
 
 [dependencies]
-tokio-core = "0.1"
+tokio = "0.1"
 failure = "0.1"
 failure_derive = "0.1"
 futures = "0.1"

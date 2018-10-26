@@ -1,10 +1,10 @@
 use {ConnectionId, ConnectionType};
 
 pub use openssl::{
-    *,
     error::ErrorStack,
     stack::StackRef,
     x509::{store::X509StoreRef, X509Ref, X509StoreContext, X509},
+    *,
 };
 
 /// The `VerifyCertificate` trait is used by the verify certificate handler, to verify a

@@ -8,21 +8,25 @@ use picoquic_sys::picoquic::{
     picoquic_call_back_event_t, picoquic_cnx_t, PICOQUIC_MAX_PACKET_SIZE,
 };
 
-use std::cell::RefCell;
-use std::io;
-use std::mem;
-use std::net::SocketAddr;
-use std::os::raw::c_void;
-use std::rc::Rc;
-use std::time::{Duration, Instant};
+use std::{
+    io, mem,
+    net::SocketAddr,
+    os::raw::c_void,
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
 
-use tokio_core::net::UdpSocket;
-use tokio_core::reactor::{Handle, Timeout};
+use tokio::{net::UdpSocket, timer::Delay};
 
-use futures::sync::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
-use futures::sync::oneshot;
-use futures::Async::{NotReady, Ready};
-use futures::{task, Future, Poll, Stream};
+use futures::{
+    sync::{
+        mpsc::{unbounded, UnboundedReceiver, UnboundedSender},
+        oneshot,
+    },
+    task,
+    Async::{NotReady, Ready},
+    Future, Poll, Stream,
+};
 
 type NewConnectionMsg = (
     SocketAddr,
@@ -32,13 +36,13 @@ type NewConnectionMsg = (
 
 pub struct ContextInner {
     socket: UdpSocket,
-    context: Rc<RefCell<CContext>>,
+    context: Arc<Mutex<CContext>>,
     quic: QuicCtx,
     /// Temporary buffer used for receiving and sending
     buffer: Vec<u8>,
     /// Picoquic requires to be woken up to handle resend,
     /// drop of connections(because of inactivity), etc..
-    timer: Timeout,
+    timer: Delay,
     recv_connect: UnboundedReceiver<NewConnectionMsg>,
     /// The keep alive interval for client connections
     client_keep_alive_interval: Option<Duration>,
@@ -47,7 +51,6 @@ pub struct ContextInner {
 impl ContextInner {
     pub fn new(
         listen_address: &SocketAddr,
-        handle: &Handle,
         config: Config,
     ) -> Result<
         (
@@ -73,11 +76,11 @@ impl ContextInner {
 
         Ok((
             ContextInner {
-                socket: UdpSocket::bind(listen_address, handle).context(ErrorKind::NetworkError)?,
+                socket: UdpSocket::bind(listen_address).context(ErrorKind::NetworkError)?,
                 context,
                 quic,
                 buffer: vec![0; PICOQUIC_MAX_PACKET_SIZE as usize],
-                timer: Timeout::new(Duration::from_secs(10), handle).context(ErrorKind::Unknown)?,
+                timer: Delay::new(Instant::now() + Duration::from_secs(10)),
                 recv_connect,
                 client_keep_alive_interval,
             },
@@ -112,7 +115,7 @@ impl ContextInner {
                         }
                     };
 
-                    self.context.borrow_mut().connections.push(ctx);
+                    self.context.lock().unwrap().connections.push(ctx);
                 }
             }
         }
@@ -123,7 +126,12 @@ impl ContextInner {
         let itr = self.quic.connection_iter();
 
         for con in itr {
-            if self.socket.poll_write().is_not_ready() {
+            if self
+                .socket
+                .poll_write_ready()
+                .map(|s| s.is_not_ready())
+                .unwrap_or(true)
+            {
                 // The socket is not ready to send data
                 break;
             }
@@ -134,7 +142,7 @@ impl ContextInner {
             } else {
                 match con.prepare_packet(&mut self.buffer, current_time) {
                     Ok(Some((len, addr))) => {
-                        let _ = self.socket.send_to(&self.buffer[..len], &addr);
+                        let _ = self.socket.poll_send_to(&self.buffer[..len], &addr);
                     }
                     Ok(None) => {}
                     Err(e) => {
@@ -154,7 +162,7 @@ impl ContextInner {
             current_time: u64,
         ) -> Poll<Option<()>, io::Error> {
             loop {
-                let (len, addr) = try_nb!(socket.recv_from(buf));
+                let (len, addr) = try_ready!(socket.poll_recv_from(buf));
                 quic.incoming_data(
                     &mut buf[..len],
                     socket.local_addr().unwrap(),
@@ -172,19 +180,16 @@ impl ContextInner {
         );
     }
 
-    fn send_stateless_packets(&mut self) {
+    fn send_stateless_packets(&mut self) -> Poll<(), Error> {
         let itr = self.quic.stateless_packet_iter();
 
         for packet in itr {
-            if self.socket.poll_write().is_not_ready() {
-                // The socket is not ready to send data
-                break;
-            }
-
-            let _ = self
+            try_ready!(self
                 .socket
-                .send_to(packet.get_data(), &packet.get_peer_addr());
+                .poll_send_to(packet.get_data(), &packet.get_peer_addr()));
         }
+
+        Ok(Ready(()))
     }
 
     /// Resets the timer to fire next at the given time.
@@ -216,10 +221,10 @@ impl Future for ContextInner {
 
             self.check_for_incoming_data(current_time);
 
-            self.send_stateless_packets();
+            let _ = self.send_stateless_packets();
 
             // This checks all connection contexts if there is data that needs to be send
-            assert!(self.context.borrow_mut().poll().is_ok());
+            assert!(self.context.lock().unwrap().poll().is_ok());
 
             // All data that was send by the connection contexts, is collected to `Packet`'s per
             // connection and is send via the `UdpSocket`.
@@ -248,7 +253,7 @@ impl Future for ContextInner {
 
 /// The callback context that is given as `ctx` argument to `new_connection_callback`.
 struct CContext {
-    connections: Vec<Rc<RefCell<connection::Context>>>,
+    connections: Vec<Arc<Mutex<connection::Context>>>,
     send_con: UnboundedSender<Connection>,
     server_keep_alive_interval: Option<Duration>,
 }
@@ -257,21 +262,21 @@ impl CContext {
     fn new(
         send_con: UnboundedSender<Connection>,
         server_keep_alive_interval: Option<Duration>,
-    ) -> (Rc<RefCell<CContext>>, *mut c_void) {
-        let ctx = Rc::new(RefCell::new(CContext {
+    ) -> (Arc<Mutex<CContext>>, *mut c_void) {
+        let ctx = Arc::new(Mutex::new(CContext {
             connections: Vec::new(),
             send_con,
             server_keep_alive_interval,
         }));
 
-        let c_ctx = Rc::into_raw(ctx.clone()) as *mut c_void;
+        let c_ctx = Arc::into_raw(ctx.clone()) as *mut c_void;
 
-        assert_eq!(2, Rc::strong_count(&ctx));
+        assert_eq!(2, Arc::strong_count(&ctx));
 
         (ctx, c_ctx)
     }
 
-    fn new_connection(&mut self, con: Connection, ctx: Rc<RefCell<connection::Context>>) {
+    fn new_connection(&mut self, con: Connection, ctx: Arc<Mutex<connection::Context>>) {
         self.connections.push(ctx);
         if self.send_con.unbounded_send(con).is_err() {
             error!("error propagating new `Connection`, the receiving side probably closed!");
@@ -286,7 +291,8 @@ impl Future for CContext {
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
         self.connections.retain(|c| {
-            c.borrow_mut()
+            c.lock()
+                .unwrap()
                 .poll()
                 .map(|v| v.is_not_ready())
                 .unwrap_or(false)
@@ -295,8 +301,8 @@ impl Future for CContext {
     }
 }
 
-fn get_context(ctx: *mut c_void) -> Rc<RefCell<CContext>> {
-    unsafe { Rc::from_raw(ctx as *mut RefCell<CContext>) }
+fn get_context(ctx: *mut c_void) -> Arc<Mutex<CContext>> {
+    unsafe { Arc::from_raw(ctx as *mut Mutex<CContext>) }
 }
 
 unsafe extern "C" fn new_connection_callback(
@@ -310,17 +316,20 @@ unsafe extern "C" fn new_connection_callback(
     assert!(!ctx.is_null());
 
     let ctx = get_context(ctx);
+    {
+        let mut ctx_locked = ctx.lock().unwrap();
 
-    let (con, con_ctx) = Connection::from_incoming(
-        cnx,
-        stream_id,
-        bytes,
-        length,
-        event,
-        ctx.borrow().server_keep_alive_interval,
-    );
+        let (con, con_ctx) = Connection::from_incoming(
+            cnx,
+            stream_id,
+            bytes,
+            length,
+            event,
+            ctx_locked.server_keep_alive_interval,
+        );
 
-    ctx.borrow_mut().new_connection(con, con_ctx);
+        ctx_locked.new_connection(con, con_ctx);
+    }
 
     mem::forget(ctx);
 }
