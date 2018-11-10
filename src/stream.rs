@@ -5,7 +5,7 @@ use picoquic_sys::picoquic::{
     picoquic_stop_sending,
 };
 
-use bytes::BytesMut;
+use bytes::{Bytes, BytesMut};
 
 use futures::{
     sync::mpsc::{unbounded, UnboundedReceiver, UnboundedSender},
@@ -23,8 +23,10 @@ pub type Id = u64;
 enum Message {
     /// Close the `Stream`.
     Close,
+    /// Recv data.
+    RecvData(BytesMut),
     /// Send data.
-    Data(BytesMut),
+    SendData(Bytes),
     Error(Error),
     /// Reset the `Stream`.
     Reset,
@@ -115,7 +117,8 @@ impl FStream for Stream {
             .map_err(|_| Error::from(ErrorKind::Unknown)))
         {
             Some(Message::Close) | None => Ok(Ready(None)),
-            Some(Message::Data(d)) => Ok(Ready(Some(d))),
+            Some(Message::RecvData(d)) => Ok(Ready(Some(d))),
+            Some(Message::SendData(_)) => panic!("`SendData` message in `Stream` poll!"),
             Some(Message::Error(err)) => Err(err),
             Some(Message::Reset) => {
                 self.stream_reset = true;
@@ -126,19 +129,19 @@ impl FStream for Stream {
 }
 
 impl Sink for Stream {
-    type SinkItem = BytesMut;
+    type SinkItem = Bytes;
     type SinkError = Error;
 
     fn start_send(&mut self, item: Self::SinkItem) -> StartSend<Self::SinkItem, Self::SinkError> {
-        fn extract_data(val: Message) -> BytesMut {
+        fn extract_data(val: Message) -> Bytes {
             match val {
-                Message::Data(d) => d,
+                Message::SendData(d) => d,
                 _ => unreachable!(),
             }
         }
 
         self.send_msg
-            .start_send(Message::Data(item))
+            .start_send(Message::SendData(item))
             .map_err(|e| ErrorKind::SendError(extract_data(e.into_inner())).into())
             .map(|r| r.map(extract_data))
     }
@@ -207,7 +210,7 @@ impl Context {
             } else {
                 let data = BytesMut::from(data);
 
-                let _ = self.recv_msg.unbounded_send(Message::Data(data));
+                let _ = self.recv_msg.unbounded_send(Message::RecvData(data));
             }
         }
 
@@ -233,7 +236,7 @@ impl Context {
         let _ = self.recv_msg.unbounded_send(Message::Close);
     }
 
-    fn send_data(&mut self, data: &BytesMut) {
+    fn send_data(&mut self, data: Bytes) {
         if is_unidirectional(self.id) && !self.is_unidirectional_send_allowed() {
             //TODO: maybe we should do more than just printing
             error!("tried to send data to incoming unidirectional stream!");
@@ -300,8 +303,11 @@ impl Future for Context {
                     self.close();
                     return Ok(Ready(()));
                 }
-                Some(Message::Data(data)) => {
-                    self.send_data(&data);
+                Some(Message::SendData(data)) => {
+                    self.send_data(data);
+                }
+                Some(Message::RecvData(_)) => {
+                    panic!("`RecvData` message in `Context` future!");
                 }
                 Some(Message::Error(_)) => {}
                 None => {

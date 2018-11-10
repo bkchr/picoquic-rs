@@ -23,7 +23,7 @@ use std::{
 
 use futures::{sync::mpsc::unbounded, Future, Sink, Stream as FStream};
 
-use bytes::BytesMut;
+use bytes::{Bytes, BytesMut};
 
 use openssl::{
     error::ErrorStack,
@@ -148,7 +148,7 @@ fn client_connects_creates_stream_and_sends_data<F, T, C>(
     assert_ne!(stream.peer_addr(), stream.local_addr());
 
     evt_loop
-        .block_on(stream.send(BytesMut::from(send_data)))
+        .block_on(stream.send(Bytes::from(send_data)))
         .unwrap();
 
     assert_eq!(
@@ -234,7 +234,7 @@ fn empty_stream_reset_and_no_more_send_on_drop_inner() {
         .expect("creates stream");
 
     let stream = evt_loop
-        .block_on(stream.send(BytesMut::from(send_data)))
+        .block_on(stream.send(Bytes::from(send_data)))
         .unwrap();
 
     let (result, mut stream) = evt_loop
@@ -242,7 +242,7 @@ fn empty_stream_reset_and_no_more_send_on_drop_inner() {
         .unwrap();
 
     assert_eq!(result, None);
-    assert!(stream.start_send(BytesMut::from("error")).is_err());
+    assert!(stream.start_send(Bytes::from("error")).is_err());
     assert!(stream.is_reset());
 }
 
@@ -257,7 +257,7 @@ fn none_empty_stream_set_fin_bit_on_drop_inner() {
     let addr = start_server_thread_with_default_config(move |c| {
         c.for_each(move |c| {
             tokio::spawn(
-                c.for_each(move |s| s.send(BytesMut::from(send_data)).map(|_| ()))
+                c.for_each(move |s| s.send(Bytes::from(send_data)).map(|_| ()))
                     .map_err(|_| ()),
             );
 
@@ -274,7 +274,7 @@ fn none_empty_stream_set_fin_bit_on_drop_inner() {
     let stream = evt_loop
         .block_on(
             con.new_bidirectional_stream()
-                .and_then(move |s| s.send(BytesMut::from(send_data))),
+                .and_then(move |s| s.send(Bytes::from(send_data))),
         )
         .expect("creates stream");
 
@@ -311,7 +311,11 @@ where
 
                     let (send, recv) = s.split();
 
-                    tokio::spawn(send.send_all(recv).map(|_| ()).map_err(|_| ()));
+                    tokio::spawn(
+                        send.send_all(recv.map(BytesMut::freeze))
+                            .map(|_| ())
+                            .map_err(|_| ()),
+                    );
                     Ok(())
                 })
                 .map_err(|_| ()),
@@ -343,7 +347,7 @@ fn open_multiple_streams_sends_data_and_recvs() {
             .expect("creates stream");
         streams.push(
             evt_loop
-                .block_on(stream.send(BytesMut::from(format!("{}{}", send_data, i))))
+                .block_on(stream.send(Bytes::from(format!("{}{}", send_data, i))))
                 .unwrap(),
         );
     }
@@ -382,7 +386,7 @@ where
                 let new_stream = new_stream.clone();
 
                 create_stream(new_stream.clone())
-                    .and_then(move |s| s.send_all(incoming_stream))
+                    .and_then(move |s| s.send_all(incoming_stream.map(BytesMut::freeze)))
                     .map(|_| ())
             })
         })
@@ -398,7 +402,7 @@ where
         .block_on(create_stream(con.get_new_stream_handle()))
         .expect("creates stream");
     let _stream = evt_loop
-        .block_on(stream.send(BytesMut::from(send_data)))
+        .block_on(stream.send(Bytes::from(send_data)))
         .unwrap();
 
     let (new_stream, _con) = evt_loop
@@ -511,7 +515,7 @@ fn verify_certificate_callback_is_called_and_certificate_is_verified(
         .block_on(con.new_bidirectional_stream())
         .expect("creates stream");
     let stream = evt_loop
-        .block_on(stream.send(BytesMut::from(send_data)))
+        .block_on(stream.send(Bytes::from(send_data)))
         .unwrap();
 
     assert_eq!(

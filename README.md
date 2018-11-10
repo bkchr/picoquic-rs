@@ -27,35 +27,33 @@ run `cargo build`.
 extern crate bytes;
 extern crate futures;
 extern crate picoquic;
-extern crate tokio_core;
+extern crate tokio;
 
 use picoquic::{Config, Context};
 
-use tokio_core::reactor::Core;
-
-use bytes::BytesMut;
+use bytes::Bytes;
 
 use futures::{Future, Sink, Stream};
 
 fn main() {
-    let mut evt_loop = Core::new().unwrap();
+    let mut evt_loop = tokio::runtime::Runtime::new().unwrap();
 
     let config = Config::new();
 
-    let mut client = Context::new(&([0, 0, 0, 0], 0).into(), &evt_loop.handle(), config).unwrap();
+    let mut client = Context::new(&([0, 0, 0, 0], 0).into(), evt_loop.executor(), config).unwrap();
 
     let mut con = evt_loop
-        .run(client.new_connection(([127, 0, 0, 1], 22222).into()))
+        .block_on(client.new_connection(([127, 0, 0, 1], 22222).into(), "server.test"))
         .unwrap();
 
-    let stream = evt_loop.run(con.new_bidirectional_stream()).unwrap();
+    let stream = evt_loop.block_on(con.new_bidirectional_stream()).unwrap();
 
     let stream = evt_loop
-        .run(stream.send(BytesMut::from("hello server")))
+        .block_on(stream.send(Bytes::from("hello server")))
         .unwrap();
 
     let answer = evt_loop
-        .run(
+        .block_on(
             stream
                 .into_future()
                 .map(|(m, _)| m.unwrap())
@@ -72,57 +70,55 @@ fn main() {
 extern crate bytes;
 extern crate futures;
 extern crate picoquic;
-extern crate tokio_core;
+extern crate tokio;
 
 use picoquic::{Config, Context};
 
-use tokio_core::reactor::Core;
-
 use futures::{Future, Sink, Stream};
 
-use bytes::BytesMut;
+use bytes::Bytes;
 
 fn main() {
-    let mut evt_loop = Core::new().unwrap();
+    let evt_loop = tokio::runtime::Runtime::new().unwrap();
 
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
 
     let mut config = Config::new();
-    config.set_cert_chain_filename(format!("{}/examples/cert.pem", manifest_dir));
-    config.set_key_filename(format!("{}/examples/key.pem", manifest_dir));
+    config.set_certificate_chain_filename(format!("{}/examples/cert.pem", manifest_dir));
+    config.set_private_key_filename(format!("{}/examples/key.pem", manifest_dir));
 
-    let server = Context::new(&([0, 0, 0, 0], 22222).into(), &evt_loop.handle(), config).unwrap();
+    let server = Context::new(&([0, 0, 0, 0], 22222).into(), evt_loop.executor(), config).unwrap();
 
     println!("Server listening on: {}", server.local_addr());
 
-    let handle = evt_loop.handle();
+    evt_loop.block_on_all(
+        server
+            .for_each(|c| {
+                println!("New connection from: {}", c.peer_addr());
 
-    evt_loop
-        .run(server.for_each(|c| {
-            let handle = handle.clone();
-
-            println!("New connection from: {}", c.peer_addr());
-
-            handle.clone().spawn(c.for_each(move |s| {
-                // We print the received message and sent a new one, after that we collect all
-                // remaining messages. The collect is a "hack" that prevents that the `Stream` is
-                // dropped too early.
-                handle.clone().spawn(
-                    s.into_future()
-                        .map_err(|_| ())
-                        .and_then(|(m, s)| {
-                            println!("Got: {:?}", m);
-                            s.send(BytesMut::from("hello client")).map_err(|_| ())
-                        })
-                        .and_then(|s| s.collect().map_err(|_| ()))
-                        .map(|_| ()),
+                tokio::spawn(
+                    c.for_each(move |s| {
+                        // We print the received message and sent a new one, after that we collect all
+                        // remaining messages. The collect is a "hack" that prevents that the `Stream` is
+                        // dropped too early.
+                        tokio::spawn(
+                            s.into_future()
+                                .map_err(|_| ())
+                                .and_then(|(m, s)| {
+                                    println!("Got: {:?}", m);
+                                    s.send(Bytes::from("hello client")).map_err(|_| ())
+                                })
+                                .and_then(|s| s.collect().map_err(|_| ()))
+                                .map(|_| ()),
+                        );
+                        Ok(())
+                    })
+                    .map_err(|_| ()),
                 );
-                Ok(())
-            }).map_err(|_| ()));
 
-            Ok(())
-        }))
-        .unwrap();
+                Ok(())
+            })
+    ).unwrap();
 }
 ```
 

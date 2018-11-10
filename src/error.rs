@@ -3,7 +3,7 @@ use std::{ffi, fmt, io};
 pub use failure::ResultExt;
 use failure::{self, Backtrace, Context, Fail};
 
-use bytes::BytesMut;
+use bytes::Bytes;
 
 use futures;
 
@@ -93,7 +93,7 @@ pub enum ErrorKind {
     #[fail(display = "Unknown.")]
     Unknown,
     #[fail(display = "Send failed.")]
-    SendError(BytesMut),
+    SendError(Bytes),
     #[fail(display = "An error occurred in the TLS handshake.")]
     TLSHandshakeError,
     #[fail(display = "An internal error occurred.")]

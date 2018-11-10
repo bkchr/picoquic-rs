@@ -7,7 +7,7 @@ use picoquic::{Config, Context};
 
 use futures::{Future, Sink, Stream};
 
-use bytes::BytesMut;
+use bytes::Bytes;
 
 fn main() {
     let evt_loop = tokio::runtime::Runtime::new().unwrap();
@@ -36,7 +36,7 @@ fn main() {
                             .map_err(|_| ())
                             .and_then(|(m, s)| {
                                 println!("Got: {:?}", m);
-                                s.send(BytesMut::from("hello client")).map_err(|_| ())
+                                s.send(Bytes::from("hello client")).map_err(|_| ())
                             })
                             .and_then(|s| s.collect().map_err(|_| ()))
                             .map(|_| ()),

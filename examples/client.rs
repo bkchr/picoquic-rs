@@ -5,7 +5,7 @@ extern crate tokio;
 
 use picoquic::{Config, Context};
 
-use bytes::BytesMut;
+use bytes::Bytes;
 
 use futures::{Future, Sink, Stream};
 
@@ -23,7 +23,7 @@ fn main() {
     let stream = evt_loop.block_on(con.new_bidirectional_stream()).unwrap();
 
     let stream = evt_loop
-        .block_on(stream.send(BytesMut::from("hello server")))
+        .block_on(stream.send(Bytes::from("hello server")))
         .unwrap();
 
     let answer = evt_loop
