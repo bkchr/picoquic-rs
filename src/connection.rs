@@ -381,7 +381,7 @@ impl Context {
         if let Some(err) = self.cnx.error() {
             self.streams
                 .values_mut()
-                .for_each(|s| s.handle_connection_error(err()));
+                .for_each(|s| s.handle_connection_error(&err));
 
             while let Ok(Ready(Some((_, sender)))) = self.recv_create_stream.poll() {
                 let _ = sender.send(Err(err()));
