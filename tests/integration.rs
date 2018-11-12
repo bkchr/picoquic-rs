@@ -242,8 +242,12 @@ fn empty_stream_reset_and_no_more_send_on_drop_inner() {
         .unwrap();
 
     assert_eq!(result, None);
-    assert!(stream.start_send(Bytes::from("error")).is_err());
     assert!(stream.is_reset());
+    assert!(evt_loop
+        .block_on(futures::lazy(
+            move || stream.start_send(Bytes::from("error"))
+        ))
+        .is_err());
 }
 
 #[test]
