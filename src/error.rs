@@ -117,3 +117,7 @@ macro_rules! bail {
         return Err(::failure::err_msg::<String>(format!($fmt, $($arg)+)).into());
     };
 }
+
+/// A function that returns the an error.
+pub trait ErrorFn: Send + 'static + Sync + Fn() -> Error {}
+impl<T: Fn() -> Error + Send + 'static + Sync> ErrorFn for T {}

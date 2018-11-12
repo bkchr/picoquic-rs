@@ -26,6 +26,7 @@ libc = "0.2"
 socket2 = "0.3"
 openssl = "^0.10.6"
 openssl-sys = "^0.9.28"
+parking_lot = "0.6"
 
 [dependencies.picoquic-sys]
 path = "./picoquic-sys/"

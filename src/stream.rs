@@ -4,14 +4,12 @@ use picoquic_sys::picoquic::{
     self, picoquic_add_to_stream, picoquic_call_back_event_t, picoquic_reset_stream,
     picoquic_stop_sending,
 };
+use unbounded_with_error::{unbounded_with_error, Receiver, Sender};
 
 use bytes::{Bytes, BytesMut};
 
 use futures::{
-    sync::{
-        mpsc::{unbounded, UnboundedReceiver, UnboundedSender},
-        oneshot,
-    },
+    sync::mpsc::{unbounded, UnboundedReceiver, UnboundedSender},
     Async::{NotReady, Ready},
     Future, Poll, Sink, StartSend, Stream as FStream,
 };
@@ -49,7 +47,7 @@ pub enum Type {
 #[derive(Debug)]
 pub struct Stream {
     recv_msg: UnboundedReceiver<Message>,
-    send_msg: SenderWithError,
+    send_msg: Sender<Message>,
     id: Id,
     peer_addr: SocketAddr,
     local_addr: SocketAddr,
@@ -64,7 +62,7 @@ impl Stream {
         is_client_con: bool,
     ) -> (Stream, Context) {
         let (recv_msg, recv_send) = unbounded();
-        let (send_msg, send_recv) = channel_with_error();
+        let (send_msg, send_recv) = unbounded_with_error();
 
         let ctx = Context::new(recv_msg, send_recv, id, cnx, is_client_con);
         let stream = Stream {
@@ -101,8 +99,7 @@ impl Stream {
     /// Resets this stream (immediate termination).
     pub fn reset(mut self) -> Result<(), Error> {
         self.send_msg
-            .start_send(Message::Reset)
-            .map(|_| ())
+            .unbounded_send(Message::Reset)
             .map_err(|e| e.into_error(|_| ErrorKind::Unknown.into()))
     }
 
@@ -167,7 +164,7 @@ impl Drop for Stream {
 
 pub(crate) struct Context {
     recv_msg: UnboundedSender<Message>,
-    send_msg: ReceiverWithError,
+    send_msg: Receiver<Message>,
     id: Id,
     finished: bool,
     cnx: ffi::Connection,
@@ -181,7 +178,7 @@ pub(crate) struct Context {
 impl Context {
     fn new(
         recv_msg: UnboundedSender<Message>,
-        mut send_msg: ReceiverWithError,
+        mut send_msg: Receiver<Message>,
         id: Id,
         cnx: ffi::Connection,
         is_client_con: bool,
@@ -233,9 +230,9 @@ impl Context {
     }
 
     /// Handle a connection error.
-    pub fn handle_connection_error(&mut self, err: &Fn() -> Error) {
+    pub fn handle_connection_error(&mut self, err: impl ErrorFn<Output = Error>) {
         let _ = self.recv_msg.unbounded_send(Message::Error(err()));
-        self.send_msg.propagate_error(err())
+        self.send_msg.propagate_error(err)
     }
 
     /// Handle connection close.
@@ -327,114 +324,4 @@ impl Future for Context {
             }
         }
     }
-}
-
-/// Error used by `SenderWithError` to distinguish between propagated error and generic error.
-enum SendError {
-    Propagate(Error),
-    Generic(Message),
-}
-
-impl SendError {
-    fn into_error<T: Fn(Message) -> Error>(self, map_err: T) -> Error {
-        match self {
-            SendError::Propagate(err) => err,
-            SendError::Generic(message) => map_err(message),
-        }
-    }
-}
-
-/// A sender with an associated error that can be set by the receiver side.
-#[derive(Debug)]
-struct SenderWithError {
-    sender: UnboundedSender<Message>,
-    error_recv: oneshot::Receiver<Error>,
-    error_received: bool,
-}
-
-impl SenderWithError {
-    fn new(sender: UnboundedSender<Message>, error_recv: oneshot::Receiver<Error>) -> Self {
-        Self {
-            sender,
-            error_recv,
-            error_received: false,
-        }
-    }
-
-    fn check_for_error(&mut self) -> Option<Error> {
-        // If `sender` is closed, check if we got an error to propagate
-        if self.sender.is_closed() && !self.error_received {
-            if let Ok(Some(err)) = self.error_recv.try_recv() {
-                self.error_received = true;
-                return Some(err);
-            }
-        }
-
-        None
-    }
-}
-impl Sink for SenderWithError {
-    type SinkItem = Message;
-    type SinkError = SendError;
-
-    fn start_send(&mut self, item: Self::SinkItem) -> StartSend<Self::SinkItem, Self::SinkError> {
-        self.sender.start_send(item).map_err(|e| {
-            if let Some(err) = self.check_for_error() {
-                SendError::Propagate(err)
-            } else {
-                SendError::Generic(e.into_inner())
-            }
-        })
-    }
-    fn poll_complete(&mut self) -> Poll<(), Self::SinkError> {
-        self.sender
-            .poll_complete()
-            .map_err(|_| SendError::Propagate(ErrorKind::Unknown.into()))
-    }
-}
-
-/// A receiver with the ability to propagate an error to the sender.
-struct ReceiverWithError {
-    receiver: UnboundedReceiver<Message>,
-    error_sender: Option<oneshot::Sender<Error>>,
-}
-
-impl ReceiverWithError {
-    fn new(receiver: UnboundedReceiver<Message>, error_sender: oneshot::Sender<Error>) -> Self {
-        Self {
-            receiver,
-            error_sender: Some(error_sender),
-        }
-    }
-
-    /// Propagate the given error to the `Sender` side.
-    /// This will only work once, further calls of this function will just discard the error.
-    fn propagate_error(&mut self, err: Error) {
-        self.error_sender.take().map(|v| {
-            let _ = v.send(err);
-        });
-    }
-
-    fn close(&mut self) {
-        self.receiver.close();
-    }
-}
-
-impl FStream for ReceiverWithError {
-    type Item = Message;
-    type Error = Error;
-
-    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
-        self.receiver.poll().map_err(|_| ErrorKind::Unknown.into())
-    }
-}
-
-fn channel_with_error() -> (SenderWithError, ReceiverWithError) {
-    let (sender, receiver) = unbounded();
-    let (err_sender, err_receiver) = oneshot::channel();
-
-    (
-        SenderWithError::new(sender, err_receiver),
-        ReceiverWithError::new(receiver, err_sender),
-    )
 }

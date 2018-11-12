@@ -158,6 +158,7 @@ extern crate libc;
 extern crate log;
 extern crate openssl;
 extern crate openssl_sys;
+extern crate parking_lot;
 extern crate picoquic_sys;
 extern crate socket2;
 extern crate tokio;
@@ -170,6 +171,7 @@ mod context_inner;
 mod error;
 mod ffi;
 mod stream;
+mod unbounded_with_error;
 mod verify_certificate;
 
 pub use self::config::{Config, FileFormat, Role};

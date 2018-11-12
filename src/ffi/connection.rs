@@ -220,7 +220,7 @@ impl Connection {
 
     /// Checks if the connection had an error.
     /// The returned closure, will always construct the same error.
-    pub fn error(self) -> Option<impl Fn() -> Error> {
+    pub fn error(self) -> Option<impl ErrorFn + Clone> {
         let error_code = unsafe {
             let error = picoquic_get_local_error(self.as_ptr());
             if error != 0 {
@@ -230,11 +230,12 @@ impl Connection {
             }
         };
 
+        let is_handshake_error = unsafe { picoquic_is_handshake_error(error_code as u16) == 1 };
         if error_code == 0 {
             None
         } else {
             Some(move || {
-                if unsafe { picoquic_is_handshake_error(error_code as u16) == 1 } {
+                if is_handshake_error {
                     ErrorKind::TLSHandshakeError.into()
                 } else {
                     ErrorKind::Unknown.into()

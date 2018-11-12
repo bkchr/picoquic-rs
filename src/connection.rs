@@ -1,6 +1,7 @@
 use error::*;
 use ffi::{self, QuicCtx};
 use stream::{self, Stream};
+use unbounded_with_error::{unbounded_with_error, Receiver, SendError, Sender};
 
 use picoquic_sys::picoquic::{
     self, picoquic_call_back_event_t, picoquic_cnx_t, picoquic_set_callback,
@@ -247,7 +248,7 @@ impl Connection {
 pub(crate) struct Context {
     send_msg: UnboundedSender<Message>,
     close_recv: oneshot::Receiver<()>,
-    recv_create_stream: UnboundedReceiver<(stream::Type, oneshot::Sender<Result<Stream, Error>>)>,
+    recv_create_stream: Receiver<(stream::Type, oneshot::Sender<Result<Stream, Error>>)>,
     streams: HashMap<stream::Id, stream::Context>,
     cnx: ffi::Connection,
     closed: bool,
@@ -272,7 +273,7 @@ impl Context {
         is_client: bool,
         local_addr: SocketAddr,
     ) -> (Arc<Mutex<Context>>, *mut c_void, NewStreamHandle) {
-        let (send_create_stream, recv_create_stream) = unbounded();
+        let (send_create_stream, recv_create_stream) = unbounded_with_error();
 
         let new_stream_handle = NewStreamHandle {
             send: send_create_stream,
@@ -381,8 +382,10 @@ impl Context {
         if let Some(err) = self.cnx.error() {
             self.streams
                 .values_mut()
-                .for_each(|s| s.handle_connection_error(&err));
+                .for_each(|s| s.handle_connection_error(err.clone()));
 
+            self.recv_create_stream.propagate_error(err.clone());
+            self.recv_create_stream.close();
             while let Ok(Ready(Some((_, sender)))) = self.recv_create_stream.poll() {
                 let _ = sender.send(Err(err()));
             }
@@ -461,7 +464,7 @@ unsafe extern "C" fn recv_data_callback(
 /// A handle to create new `Stream`s for a connection.
 #[derive(Clone)]
 pub struct NewStreamHandle {
-    send: UnboundedSender<(stream::Type, oneshot::Sender<Result<Stream, Error>>)>,
+    send: Sender<(stream::Type, oneshot::Sender<Result<Stream, Error>>)>,
 }
 
 impl NewStreamHandle {
@@ -478,7 +481,13 @@ impl NewStreamHandle {
     fn new_stream_handle(&mut self, stype: stream::Type) -> NewStreamFuture {
         let (send, recv) = oneshot::channel();
 
-        let _ = self.send.unbounded_send((stype, send));
+        let _ = self
+            .send
+            .unbounded_send((stype, send))
+            .map_err(|e| match e {
+                SendError::Channel(e, send) => send.1.send(Err(e)),
+                SendError::Normal(send) => send.1.send(Err(ErrorKind::Unknown.into())),
+            });
 
         NewStreamFuture { recv }
     }
