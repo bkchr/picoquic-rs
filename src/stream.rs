@@ -364,7 +364,7 @@ impl SenderWithError {
     fn check_for_error(&mut self) -> Option<Error> {
         // If `sender` is closed, check if we got an error to propagate
         if self.sender.is_closed() && !self.error_received {
-            if let Ok(Ready(err)) = self.error_recv.poll() {
+            if let Ok(Some(err)) = self.error_recv.try_recv() {
                 self.error_received = true;
                 return Some(err);
             }
