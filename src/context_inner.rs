@@ -1,7 +1,7 @@
 use config::{Config, Role};
 use connection::{self, Connection};
 use error::*;
-use ffi::QuicCtx;
+use ffi::{self, QuicCtx};
 use stream;
 
 use picoquic_sys::picoquic::{
@@ -314,6 +314,11 @@ unsafe extern "C" fn new_connection_callback(
     ctx: *mut c_void,
 ) {
     assert!(!ctx.is_null());
+
+    // early out, if the connection is already going to be closed, we don't need to handle it.
+    if ffi::Connection::from(cnx).is_going_to_close() {
+        return;
+    }
 
     let ctx = get_context(ctx);
     {
