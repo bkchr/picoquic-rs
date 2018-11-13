@@ -6,8 +6,8 @@ extern crate timebomb;
 extern crate tokio;
 
 use picoquic::{
-    default_verify_certificate, Config, Connection, ConnectionId, ConnectionType, Context,
-    FileFormat, NewStreamFuture, NewStreamHandle, SType, Stream, VerifyCertificate,
+    default_verify_certificate, Config, Connection, ConnectionId, ConnectionType, Context, Error,
+    ErrorKind, FileFormat, NewStreamFuture, NewStreamHandle, SType, Stream, VerifyCertificate,
 };
 
 use std::{
@@ -19,6 +19,7 @@ use std::{
         Arc,
     },
     thread,
+    time::{Duration, Instant},
 };
 
 use futures::{sync::mpsc::unbounded, Future, Sink, Stream as FStream};
@@ -31,7 +32,7 @@ use openssl::{
     x509::{store::X509StoreBuilder, X509Ref, X509},
 };
 
-use tokio::runtime::Runtime;
+use tokio::{runtime::Runtime, timer::Interval};
 
 const TEST_SERVER_NAME: &str = "picoquic.test";
 
@@ -237,16 +238,20 @@ fn empty_stream_reset_and_no_more_send_on_drop_inner() {
         .block_on(stream.send(Bytes::from(send_data)))
         .unwrap();
 
-    let (result, mut stream) = evt_loop
+    let (result, stream) = evt_loop
         .block_on(stream.into_future().map_err(|(e, _)| e))
         .unwrap();
 
     assert_eq!(result, None);
     assert!(stream.is_reset());
+    // Send data in a loop, as `stop_sending` is processed after `reset` and to prevent race
+    // conditions, we need to try sending multiple times.
     assert!(evt_loop
-        .block_on(futures::lazy(
-            move || stream.start_send(Bytes::from("error"))
-        ))
+        .block_on(futures::lazy(move || stream.send_all(
+            Interval::new(Instant::now(), Duration::from_millis(100))
+                .map_err(|_| Error::from(ErrorKind::Unknown))
+                .map(|_| Bytes::from("error"))
+        )))
         .is_err());
 }
 
