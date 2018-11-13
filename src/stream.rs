@@ -96,8 +96,8 @@ impl Stream {
         self.local_addr
     }
 
-    /// Resets this stream (immediate termination).
-    pub fn reset(mut self) -> Result<(), Error> {
+    /// Resets this stream.
+    pub fn reset(&mut self) -> Result<(), Error> {
         self.send_msg
             .unbounded_send(Message::Reset)
             .map_err(|e| e.into_error(|_| ErrorKind::Unknown.into()))
@@ -200,7 +200,7 @@ impl Context {
     }
 
     fn reset(&mut self) {
-        self.finished = true;
+        self.send_msg.close();
         unsafe {
             picoquic_reset_stream(self.cnx.as_ptr(), self.id, 0);
         }
@@ -258,18 +258,18 @@ impl Context {
         self.stop_sending = true;
         self.send_msg.close();
 
+        if !is_unidirectional(self.id) || !self.is_unidirectional_send_allowed() {
+            unsafe {
+                picoquic_stop_sending(self.cnx.as_ptr(), self.id, 0);
+            }
+        }
+
         if self.data_send {
             unsafe {
                 picoquic_add_to_stream(self.cnx.as_ptr(), self.id, ptr::null(), 0, 1);
             }
         } else {
             self.reset();
-        }
-
-        if !is_unidirectional(self.id) || !self.is_unidirectional_send_allowed() {
-            unsafe {
-                picoquic_stop_sending(self.cnx.as_ptr(), self.id, 0);
-            }
         }
     }
 
@@ -301,7 +301,6 @@ impl Future for Context {
             match try_ready!(self.send_msg.poll()) {
                 Some(Message::Reset) => {
                     self.reset();
-                    return Ok(Ready(()));
                 }
                 Some(Message::Close) => {
                     self.close();
