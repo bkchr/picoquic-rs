@@ -15,9 +15,14 @@ in [development](https://github.com/quicwg) and so the implementation.
 For building picoquic-rs, you need the following dependencies:
 * clang
 * openssl
+Building is currently only tested on Linux. Clone the repo and fetch the submodules:
 
-Building is currently only tested on Linux. To build the project, you just need to
-run `cargo build`.
+```
+git submodule init
+git submodule update
+```
+
+To build the project, run `cargo build`.
 `picoquic-sys` will also build the `picoquic` c-library for you (hopefully).
 
 ### Example
