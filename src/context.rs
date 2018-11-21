@@ -7,8 +7,7 @@ use std::net::SocketAddr;
 
 use tokio::runtime::TaskExecutor;
 
-use futures::sync::mpsc::UnboundedReceiver;
-use futures::{Poll, Stream};
+use futures::{sync::{oneshot, mpsc::UnboundedReceiver}, Poll, Stream};
 
 /// The `Picoquic` context. It setups and controls the `UdpSocket`. Every incoming `Connection`
 /// can be obtained by polling this context.
@@ -16,6 +15,8 @@ pub struct Context {
     recv_con: UnboundedReceiver<Connection>,
     local_addr: SocketAddr,
     new_connection_handle: NewConnectionHandle,
+    /// The handle is used to inform the `ContextInner` about `Context` being dropped.
+    close_handle: Option<oneshot::Sender<()>>,
 }
 
 impl Context {
@@ -27,7 +28,7 @@ impl Context {
         handle: TaskExecutor,
         config: Config,
     ) -> Result<Context, Error> {
-        let (inner, recv_con, new_connection_handle) = ContextInner::new(listen_address, config)?;
+        let (inner, recv_con, new_connection_handle, close_handle) = ContextInner::new(listen_address, config)?;
 
         let local_addr = inner.local_addr();
 
@@ -38,6 +39,7 @@ impl Context {
             recv_con,
             local_addr,
             new_connection_handle,
+            close_handle: Some(close_handle),
         })
     }
 
@@ -61,6 +63,12 @@ impl Context {
     /// Returns the handle to create new connections.
     pub fn get_new_connection_handle(&self) -> NewConnectionHandle {
         self.new_connection_handle.clone()
+    }
+}
+
+impl Drop for Context {
+    fn drop(&mut self) {
+        self.close_handle.take().map(|h| h.send(()));
     }
 }
 

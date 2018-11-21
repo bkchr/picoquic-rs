@@ -46,6 +46,7 @@ pub struct ContextInner {
     recv_connect: UnboundedReceiver<NewConnectionMsg>,
     /// The keep alive interval for client connections
     client_keep_alive_interval: Option<Duration>,
+    close_handle_recv: oneshot::Receiver<()>,
 }
 
 impl ContextInner {
@@ -57,6 +58,7 @@ impl ContextInner {
             ContextInner,
             UnboundedReceiver<Connection>,
             NewConnectionHandle,
+            oneshot::Sender<()>,
         ),
         Error,
     > {
@@ -73,6 +75,7 @@ impl ContextInner {
 
         let (send_connect, recv_connect) = unbounded();
         let connect = NewConnectionHandle { send: send_connect };
+        let (close_handle_send, close_handle_recv) = oneshot::channel();
 
         Ok((
             ContextInner {
@@ -83,9 +86,11 @@ impl ContextInner {
                 timer: Delay::new(Instant::now() + Duration::from_secs(10)),
                 recv_connect,
                 client_keep_alive_interval,
+                close_handle_recv,
             },
             recv,
             connect,
+            close_handle_send,
         ))
     }
 
@@ -200,6 +205,13 @@ impl ContextInner {
         // timer finishes.
         self.timer.poll().map(|v| v.is_not_ready()).unwrap_or(false)
     }
+
+    fn is_context_dropped(&mut self) -> bool {
+        match self.close_handle_recv.poll() {
+            Ok(Ready(_)) | Err(_) => true,
+            _ => false,
+        }
+    }
 }
 
 impl Future for ContextInner {
@@ -216,6 +228,11 @@ impl Future for ContextInner {
 
         loop {
             let current_time = self.quic.get_current_time();
+
+            if self.is_context_dropped() {
+                trace!("`Context` dropped, will end `ContextInner`.");
+                return Ok(Ready(()));
+            }
 
             self.check_for_new_connection_request(current_time);
 
@@ -278,10 +295,7 @@ impl CContext {
 
     fn new_connection(&mut self, con: Connection, ctx: Arc<Mutex<connection::Context>>) {
         self.connections.push(ctx);
-        if self.send_con.unbounded_send(con).is_err() {
-            error!("error propagating new `Connection`, the receiving side probably closed!");
-            //TODO: yeah we should end the `ServerInner` future here
-        }
+        let _ = self.send_con.unbounded_send(con);
     }
 }
 
