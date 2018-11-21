@@ -32,7 +32,10 @@ use openssl::{
     x509::{store::X509StoreBuilder, X509Ref, X509},
 };
 
-use tokio::{runtime::Runtime, timer::Interval};
+use tokio::{
+    runtime::Runtime,
+    timer::{Delay, Interval},
+};
 
 const TEST_SERVER_NAME: &str = "picoquic.test";
 
@@ -572,4 +575,54 @@ fn set_certificate_and_key_from_memory() {
         config.set_private_key(key.to_vec(), FileFormat::PEM);
         config
     });
+}
+
+#[test]
+fn stream_stops_on_context_drop() {
+    timebomb::timeout_ms(stream_stops_on_context_drop_inner, 10000);
+}
+
+fn stream_stops_on_context_drop_inner() {
+    let send_data = "hello server";
+
+    let addr = start_server_that_sends_received_data_back(|| get_test_config());
+
+    let (mut context, mut evt_loop) = create_context_and_evt_loop_with_default_config();
+
+    let mut con = evt_loop
+        .block_on(context.new_connection(([127, 0, 0, 1], addr.port()).into(), TEST_SERVER_NAME))
+        .expect("creates connection");
+
+    let stream = evt_loop
+        .block_on(
+            con.new_bidirectional_stream()
+                .and_then(move |s| s.send(Bytes::from(send_data))),
+        )
+        .expect("creates stream");
+
+    evt_loop
+        .block_on(
+            stream
+                .send_all(
+                    Interval::new(Instant::now(), Duration::from_millis(10))
+                        .map_err(|_| Error::from(ErrorKind::Unknown))
+                        .map(move |_| Bytes::from(send_data)),
+                )
+                .map(|_| ())
+                .select(
+                    Delay::new(Instant::now() + Duration::from_millis(100))
+                        .map_err(|_| ErrorKind::Unknown.into())
+                        .map(move |_| {
+                            let _ = context;
+                            ()
+                        }),
+                ),
+        )
+        .map_err(|e| e.0)
+        .unwrap();
+
+    assert!(evt_loop
+        .block_on(con.into_future().map_err(|(e, _)| e).map(|v| v.0))
+        .unwrap()
+        .is_none());
 }
