@@ -138,8 +138,9 @@ impl QuicCtx {
         *self.quic
     }
 
-    pub fn connection_iter(&self) -> ConnectionIter {
-        ConnectionIter::new(*self.quic)
+    /// Returns an iterator over all connections, ordered by their next wake up time.
+    pub fn ordered_connection_iter(&self, current_time: u64) -> ConnectionIter {
+        ConnectionIter::new(*self.quic, current_time)
     }
 
     pub fn incoming_data(

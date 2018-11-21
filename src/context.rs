@@ -7,7 +7,10 @@ use std::net::SocketAddr;
 
 use tokio::runtime::TaskExecutor;
 
-use futures::{sync::{oneshot, mpsc::UnboundedReceiver}, Poll, Stream};
+use futures::{
+    sync::{mpsc::UnboundedReceiver, oneshot},
+    Poll, Stream,
+};
 
 /// The `Picoquic` context. It setups and controls the `UdpSocket`. Every incoming `Connection`
 /// can be obtained by polling this context.
@@ -28,7 +31,8 @@ impl Context {
         handle: TaskExecutor,
         config: Config,
     ) -> Result<Context, Error> {
-        let (inner, recv_con, new_connection_handle, close_handle) = ContextInner::new(listen_address, config)?;
+        let (inner, recv_con, new_connection_handle, close_handle) =
+            ContextInner::new(listen_address, config)?;
 
         let local_addr = inner.local_addr();
 

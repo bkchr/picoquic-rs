@@ -128,7 +128,7 @@ impl ContextInner {
 
     /// Iterates over all connections for data that is ready and sends it.
     fn send_connection_packets(&mut self, current_time: u64) {
-        let itr = self.quic.connection_iter();
+        let itr = self.quic.ordered_connection_iter(current_time);
 
         for con in itr {
             if self

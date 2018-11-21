@@ -4,17 +4,17 @@ use super::{
 };
 use connection;
 use error::*;
+use picoquic_sys::picoquic::picoquic_get_earliest_cnx_to_wake;
 use stream;
 use ConnectionType;
 
 use picoquic_sys::picoquic::{
     self, picoquic_close, picoquic_cnx_t, picoquic_create_client_cnx, picoquic_delete_cnx,
-    picoquic_enable_keep_alive, picoquic_get_cnx_state, picoquic_get_first_cnx,
-    picoquic_get_local_addr, picoquic_get_local_cnxid, picoquic_get_local_error,
-    picoquic_get_next_cnx, picoquic_get_peer_addr, picoquic_get_remote_error, picoquic_is_client,
-    picoquic_is_handshake_error, picoquic_prepare_packet, picoquic_quic_t,
-    picoquic_state_enum_picoquic_state_client_ready,picoquic_state_enum_picoquic_state_closing,
-    picoquic_state_enum_picoquic_state_disconnected,
+    picoquic_enable_keep_alive, picoquic_get_cnx_state, picoquic_get_local_addr,
+    picoquic_get_local_cnxid, picoquic_get_local_error, picoquic_get_peer_addr,
+    picoquic_get_remote_error, picoquic_is_client, picoquic_is_handshake_error,
+    picoquic_prepare_packet, picoquic_quic_t, picoquic_state_enum_picoquic_state_client_ready,
+    picoquic_state_enum_picoquic_state_closing, picoquic_state_enum_picoquic_state_disconnected,
     picoquic_state_enum_picoquic_state_server_ready, picoquic_val64_connection_id,
     PICOQUIC_ERROR_DISCONNECTED,
 };
@@ -256,29 +256,17 @@ impl From<*mut picoquic_cnx_t> for Connection {
     }
 }
 
+/// Connection iterator ordered by their next wake up time.
 pub struct ConnectionIter {
-    iter: <Vec<*mut picoquic_cnx_t> as IntoIterator>::IntoIter,
+    current_time: u64,
+    context: *mut picoquic_quic_t,
 }
 
 impl ConnectionIter {
-    pub fn new(quic: *mut picoquic_quic_t) -> ConnectionIter {
-        // We need to build a "stable" iterator.
-        // Picoquic reorders the connections internally, while working with them and that can lead
-        // to an infinite loop over the connections.
-        // So, we build the list once and are safe to not loop infinitely.
-        let mut vec = Vec::new();
-        unsafe {
-            let mut current = picoquic_get_first_cnx(quic);
-
-            while !current.is_null() {
-                vec.push(current);
-
-                current = picoquic_get_next_cnx(current);
-            }
-        }
-
+    pub fn new(quic: *mut picoquic_quic_t, current_time: u64) -> ConnectionIter {
         ConnectionIter {
-            iter: vec.into_iter(),
+            current_time,
+            context: quic,
         }
     }
 }
@@ -287,7 +275,14 @@ impl Iterator for ConnectionIter {
     type Item = Connection;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.iter.next().map(Connection::from)
+        unsafe {
+            let next = picoquic_get_earliest_cnx_to_wake(self.context, self.current_time);
+            if next.is_null() {
+                None
+            } else {
+                Some(next.into())
+            }
+        }
     }
 }
 
