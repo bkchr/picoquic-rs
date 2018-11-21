@@ -27,6 +27,7 @@ fn main() {
         .flag("-Wno-unused-parameter")
         .flag("-Wno-missing-field-initializers")
         .flag("-Wno-sign-compare")
+        .opt_level(1)
         .file("src/picotls/lib/picotls.c")
         .file("src/picotls/lib/pembase64.c")
         .file("src/picotls/lib/openssl.c")
@@ -60,6 +61,7 @@ fn main() {
         .flag("-Wno-sign-compare")
         .flag("-Wno-unused-but-set-variable")
         .flag("-Wno-missing-field-initializers")
+        .opt_level(1)
         .files(
             glob::glob("src/picoquic/picoquic/*.c")
                 .expect("failed to find picoquic c files")

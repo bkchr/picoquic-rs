@@ -39,7 +39,10 @@ use futures::{Future, Sink, Stream};
 fn main() {
     let mut evt_loop = tokio::runtime::Runtime::new().unwrap();
 
-    let config = Config::new();
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+
+    let mut config = Config::new();
+    config.set_root_certificate_filename(format!("{}/examples/ca_cert.pem", manifest_dir));
 
     let mut client = Context::new(&([0, 0, 0, 0], 0).into(), evt_loop.executor(), config).unwrap();
 
