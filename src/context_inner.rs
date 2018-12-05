@@ -16,7 +16,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-use tokio::{net::UdpSocket, timer::Delay};
+use tokio_udp::UdpSocket;
+use tokio_timer::Delay;
 
 use futures::{
     sync::{
