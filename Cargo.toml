@@ -16,17 +16,19 @@ keywords = ["quic", "future", "tokio", "protocol", "picoquic"]
 repository = "bkchr/picoquic-rs"
 
 [dependencies]
-tokio = "0.1"
+bytes = "0.4"
 failure = "0.1"
 failure_derive = "0.1"
 futures = "0.1"
-bytes = "0.4"
-log = "0.4"
 libc = "0.2"
-socket2 = "0.3"
+log = "0.4"
 openssl = "^0.10.6"
 openssl-sys = "^0.9.28"
 parking_lot = "0.6"
+socket2 = "0.3"
+tokio-executor = "0.1"
+tokio-timer = "0.2"
+tokio-udp = "0.1"
 
 [dependencies.picoquic-sys]
 path = "./picoquic-sys/"
@@ -34,5 +36,6 @@ version = "0.1.0"
 
 [dev-dependencies]
 timebomb = "0.1"
+tokio = "0.1"
 
 [workspace]

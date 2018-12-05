@@ -5,7 +5,7 @@ use error::*;
 
 use std::net::SocketAddr;
 
-use tokio::runtime::TaskExecutor;
+use tokio_executor::Executor;
 
 use futures::{
     sync::{mpsc::UnboundedReceiver, oneshot},
@@ -28,7 +28,7 @@ impl Context {
     /// name - Will be used as SNI for TLS.
     pub fn new(
         listen_address: &SocketAddr,
-        handle: TaskExecutor,
+        mut handle: impl Executor,
         config: Config,
     ) -> Result<Context, Error> {
         let (inner, recv_con, new_connection_handle, close_handle) =
@@ -37,7 +37,7 @@ impl Context {
         let local_addr = inner.local_addr();
 
         // start the inner future
-        handle.spawn(inner);
+        handle.spawn(Box::new(inner))?;
 
         Ok(Context {
             recv_con,

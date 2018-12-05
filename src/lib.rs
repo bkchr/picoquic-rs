@@ -164,7 +164,9 @@ extern crate openssl_sys;
 extern crate parking_lot;
 extern crate picoquic_sys;
 extern crate socket2;
-extern crate tokio;
+extern crate tokio_executor;
+extern crate tokio_timer;
+extern crate tokio_udp;
 
 mod config;
 mod connection;
