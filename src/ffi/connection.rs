@@ -13,10 +13,9 @@ use picoquic_sys::picoquic::{
     picoquic_enable_keep_alive, picoquic_get_cnx_state, picoquic_get_local_addr,
     picoquic_get_local_cnxid, picoquic_get_local_error, picoquic_get_peer_addr,
     picoquic_get_remote_error, picoquic_is_client, picoquic_is_handshake_error,
-    picoquic_prepare_packet, picoquic_quic_t, picoquic_state_enum_picoquic_state_client_ready,
-    picoquic_state_enum_picoquic_state_closing, picoquic_state_enum_picoquic_state_disconnected,
-    picoquic_state_enum_picoquic_state_server_ready, picoquic_val64_connection_id,
-    PICOQUIC_ERROR_DISCONNECTED,
+    picoquic_prepare_packet, picoquic_quic_t, picoquic_state_enum_picoquic_state_closing,
+    picoquic_state_enum_picoquic_state_disconnected, picoquic_state_enum_picoquic_state_ready,
+    picoquic_val64_connection_id, PICOQUIC_ERROR_DISCONNECTED,
 };
 
 use std::ffi::CString;
@@ -149,9 +148,7 @@ impl Connection {
 
     /// Is the connection ready to be used?
     pub fn is_ready(self) -> bool {
-        let state = self.state();
-        state == picoquic_state_enum_picoquic_state_client_ready
-            || state == picoquic_state_enum_picoquic_state_server_ready
+        self.state() == picoquic_state_enum_picoquic_state_ready
     }
 
     /// Is the connection going to close? (aka in closing, draining or disconnected state)
