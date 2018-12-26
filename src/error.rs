@@ -115,7 +115,7 @@ pub enum ErrorKind {
     #[fail(display = "IO error {}", _0)]
     Io(io::Error),
     #[fail(display = "Spawn error {}", _0)]
-    Spawn(SpawnError)
+    Spawn(SpawnError),
 }
 
 //FIXME: Remove when upstream provides a better bail macro

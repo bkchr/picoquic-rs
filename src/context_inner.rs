@@ -16,8 +16,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-use tokio_udp::UdpSocket;
 use tokio_timer::Delay;
+use tokio_udp::UdpSocket;
 
 use futures::{
     sync::{
@@ -41,6 +41,8 @@ pub struct ContextInner {
     quic: QuicCtx,
     /// Temporary buffer used for receiving and sending
     buffer: Vec<u8>,
+    /// Data in the buffer that was not send, because the socket was full.
+    not_send_length: Option<(usize, SocketAddr)>,
     /// Picoquic requires to be woken up to handle resend,
     /// drop of connections(because of inactivity), etc..
     timer: Delay,
@@ -88,6 +90,7 @@ impl ContextInner {
                 recv_connect,
                 client_keep_alive_interval,
                 close_handle_recv,
+                not_send_length: None,
             },
             recv,
             connect,
@@ -127,28 +130,39 @@ impl ContextInner {
         }
     }
 
+    /// Send the data in `self.buffer`.
+    /// Returns true if the data could be send.
+    fn send_data_in_buffer(&mut self, len: usize, addr: SocketAddr) -> bool {
+        match self.socket.poll_send_to(&self.buffer[..len], &addr) {
+            Ok(NotReady) => {
+                self.not_send_length = Some((len, addr));
+                trace!("Socket is full and {} bytes was not send, yet!", len);
+                false
+            }
+            _ => true,
+        }
+    }
+
     /// Iterates over all connections for data that is ready and sends it.
     fn send_connection_packets(&mut self, current_time: u64) {
+        if let Some((len, addr)) = self.not_send_length.take() {
+            if !self.send_data_in_buffer(len, addr) {
+                return;
+            }
+        }
+
         let itr = self.quic.ordered_connection_iter(current_time);
 
         for con in itr {
-            if self
-                .socket
-                .poll_write_ready()
-                .map(|s| s.is_not_ready())
-                .unwrap_or(true)
-            {
-                // The socket is not ready to send data
-                break;
-            }
-
             if con.is_disconnected() {
                 con.delete();
                 break;
             } else {
                 match con.prepare_packet(&mut self.buffer, current_time) {
                     Ok(Some((len, addr))) => {
-                        let _ = self.socket.poll_send_to(&self.buffer[..len], &addr);
+                        if !self.send_data_in_buffer(len, addr) {
+                            return;
+                        }
                     }
                     Ok(None) => {}
                     Err(e) => {
