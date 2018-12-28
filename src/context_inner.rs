@@ -158,17 +158,20 @@ impl ContextInner {
                 con.delete();
                 break;
             } else {
-                match con.prepare_packet(&mut self.buffer, current_time) {
-                    Ok(Some((len, addr))) => {
-                        if !self.send_data_in_buffer(len, addr) {
-                            return;
+                loop {
+                    match con.prepare_packet(&mut self.buffer, current_time) {
+                        Ok(Some((len, addr))) => {
+                            if !self.send_data_in_buffer(len, addr) {
+                                return;
+                            }
                         }
-                    }
-                    Ok(None) => {}
-                    Err(e) => {
-                        debug!("error while sending connections packets: {:?}", e);
-                    }
-                };
+                        Ok(None) => break,
+                        Err(e) => {
+                            debug!("error while sending connections packets: {:?}", e);
+                            break;
+                        }
+                    };
+                }
             }
         }
     }
