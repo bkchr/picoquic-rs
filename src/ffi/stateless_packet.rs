@@ -1,6 +1,6 @@
-use super::quic_ctx::socket_addr_from_c;
+use super::quic_ctx::socket_addr_from_sockaddr_storage;
 use picoquic_sys::picoquic::{
-    self, picoquic_delete_stateless_packet, picoquic_dequeue_stateless_packet, picoquic_quic_t,
+    picoquic_delete_stateless_packet, picoquic_dequeue_stateless_packet, picoquic_quic_t,
     picoquic_stateless_packet_t,
 };
 
@@ -22,10 +22,6 @@ impl StatelessPacket {
     }
 
     pub fn get_peer_addr(&self) -> SocketAddr {
-        let addr = unsafe {
-            mem::transmute::<_, *mut libc::sockaddr_storage>(&mut (*self.packet).addr_to)
-                as *mut picoquic::sockaddr
-        };
         let socket_family = unsafe { (*self.packet).addr_to.ss_family };
 
         let socket_len = if i32::from(socket_family) == libc::AF_INET {
@@ -34,7 +30,7 @@ impl StatelessPacket {
             mem::size_of::<libc::sockaddr_in6>()
         };
 
-        socket_addr_from_c(addr, socket_len as i32)
+        socket_addr_from_sockaddr_storage(unsafe { &(*self.packet).addr_to }, socket_len as i32)
     }
 
     pub fn get_data(&self) -> &[u8] {

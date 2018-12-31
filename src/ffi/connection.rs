@@ -1,5 +1,7 @@
 use super::{
-    quic_ctx::{socket_addr_from_c, MicroSeconds, QuicCtx},
+    quic_ctx::{
+        socket_addr_from_sockaddr, socket_addr_from_sockaddr_storage, MicroSeconds, QuicCtx,
+    },
     Pointer,
 };
 use connection;
@@ -18,10 +20,7 @@ use picoquic_sys::picoquic::{
     picoquic_val64_connection_id, PICOQUIC_ERROR_DISCONNECTED,
 };
 
-use std::ffi::CString;
-use std::net::SocketAddr;
-use std::ptr;
-use std::time::Duration;
+use std::{ffi::CString, mem, net::SocketAddr, ptr, time::Duration};
 
 use socket2::SockAddr;
 
@@ -78,7 +77,7 @@ impl Connection {
         unsafe {
             picoquic_get_peer_addr(*self.cnx, &mut addr, &mut addr_len);
 
-            socket_addr_from_c(addr, addr_len)
+            socket_addr_from_sockaddr(addr, addr_len)
         }
     }
 
@@ -90,7 +89,7 @@ impl Connection {
         unsafe {
             picoquic_get_local_addr(*self.cnx, &mut addr, &mut addr_len);
 
-            socket_addr_from_c(addr, addr_len)
+            socket_addr_from_sockaddr(addr, addr_len)
         }
     }
 
@@ -107,7 +106,7 @@ impl Connection {
     ) -> Result<Option<(usize, SocketAddr)>, Error> {
         let mut send_len = 0;
         let mut addr_len = 0;
-        let mut addr: *mut picoquic::sockaddr = ptr::null_mut();
+        let mut addr: picoquic::sockaddr_storage = unsafe { mem::uninitialized() };
         let ret = unsafe {
             picoquic_prepare_packet(
                 self.as_ptr(),
@@ -126,7 +125,10 @@ impl Connection {
             Err(ErrorKind::Disconnected.into())
         } else if ret == 0 {
             if send_len > 0 {
-                Ok(Some((send_len, socket_addr_from_c(addr, addr_len).into())))
+                Ok(Some((
+                    send_len,
+                    socket_addr_from_sockaddr_storage(&addr, addr_len).into(),
+                )))
             } else {
                 Ok(None)
             }

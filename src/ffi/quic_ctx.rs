@@ -296,7 +296,7 @@ fn make_certs_iovec(
     Ok((certs_ptr, len))
 }
 
-pub fn socket_addr_from_c(sock_addr: *mut picoquic::sockaddr, sock_len: i32) -> SocketAddr {
+pub fn socket_addr_from_sockaddr(sock_addr: *mut picoquic::sockaddr, sock_len: i32) -> SocketAddr {
     let addr =
         unsafe { SockAddr::from_raw_parts(sock_addr as *const libc::sockaddr, sock_len as u32) };
 
@@ -304,6 +304,14 @@ pub fn socket_addr_from_c(sock_addr: *mut picoquic::sockaddr, sock_len: i32) -> 
         .map(|v| v.into())
         .or_else(|| addr.as_inet6().map(|v| v.into()))
         .expect("neither ipv4 nor ipv6?")
+}
+
+pub fn socket_addr_from_sockaddr_storage(
+    sock_addr_storge: *const picoquic::sockaddr_storage,
+    sock_len: i32,
+) -> SocketAddr {
+    let addr = sock_addr_storge as *mut picoquic::sockaddr;
+    socket_addr_from_sockaddr(addr, sock_len)
 }
 
 pub trait MicroSeconds {
