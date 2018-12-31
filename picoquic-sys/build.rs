@@ -93,8 +93,10 @@ fn main() {
         .header("src/picotls/include/picotls.h")
         .header("src/picoquic/picoquic/picoquic.h")
         .header("src/picoquic/picoquic/util.h")
+        .blacklist_type("sockaddr_storage")
+        .raw_line("pub type sockaddr_storage = ::libc::sockaddr_storage;")
         .generate()
-        .expect("Unable to generate picoquic bindings");
+        .expect("Generates picoquic bindings");
 
     let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
     bindings

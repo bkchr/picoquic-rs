@@ -310,8 +310,7 @@ pub fn socket_addr_from_sockaddr_storage(
     sock_addr_storge: *const picoquic::sockaddr_storage,
     sock_len: i32,
 ) -> SocketAddr {
-    let addr = sock_addr_storge as *mut picoquic::sockaddr;
-    socket_addr_from_sockaddr(addr, sock_len)
+    socket_addr_from_sockaddr(sock_addr_storge as *mut picoquic::sockaddr, sock_len)
 }
 
 pub trait MicroSeconds {
