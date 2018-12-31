@@ -94,7 +94,9 @@ fn main() {
         .header("src/picoquic/picoquic/picoquic.h")
         .header("src/picoquic/picoquic/util.h")
         .blacklist_type("sockaddr_storage")
+        .blacklist_type("__kernel_sockaddr_storage")
         .raw_line("pub type sockaddr_storage = ::libc::sockaddr_storage;")
+        .raw_line("pub type __kernel_sockaddr_storage = sockaddr_storage;")
         .generate()
         .expect("Generates picoquic bindings");
 
