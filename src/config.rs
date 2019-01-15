@@ -1,4 +1,5 @@
 use super::VerifyCertificate;
+use error::*;
 use picoquic_sys::picoquic::PICOQUIC_RESET_SECRET_SIZE;
 
 use std::path::PathBuf;
@@ -128,6 +129,29 @@ impl Config {
     pub fn set_root_certificates(&mut self, certificates: Vec<Vec<u8>>, format: FileFormat) {
         self.root_certificates = Some((format, certificates));
     }
+
+    /// Verify this `Config` for common errors.
+    pub(crate) fn verify(&self) -> Result<(), Error> {
+        let private_key_set = self.private_key.is_some() || self.private_key_filename.is_some();
+        let certificate_set =
+            self.certificate_chain.is_some() || self.certificate_chain_filename.is_some();
+        if private_key_set != certificate_set {
+            bail!("Either both, private key and certificate chain need to be set or none of them!");
+        }
+
+        fn check_path_exist(path: &Option<PathBuf>) -> Result<(), Error> {
+            match path {
+                Some(ref path) if !path.exists() => bail!("File does not exist: {:?}", path),
+                _ => Ok(()),
+            }
+        }
+
+        check_path_exist(&self.certificate_chain_filename)?;
+        check_path_exist(&self.root_certificate_filename)?;
+        check_path_exist(&self.private_key_filename)?;
+
+        Ok(())
+    }
 }
 
 impl Default for Config {
@@ -145,5 +169,35 @@ impl Default for Config {
             client_authentication: false,
             verify_certificate_handler: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[should_panic(expected = "File does not exist")]
+    fn non_existing_path_fails_verify() {
+        let mut config = Config::default();
+        config.set_certificate_chain_filename("/does/not/exist");
+        config.set_private_key_filename("/does/not/exist");
+        config.verify().unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "Either both")]
+    fn set_private_key_and_not_certificate_fails_verify() {
+        let mut config = Config::default();
+        config.set_private_key(Vec::new(), FileFormat::DER);
+        config.verify().unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "Either both")]
+    fn set_certificate_and_not_private_key_fails_verify() {
+        let mut config = Config::default();
+        config.set_certificate_chain(Vec::new(), FileFormat::DER);
+        config.verify().unwrap();
     }
 }

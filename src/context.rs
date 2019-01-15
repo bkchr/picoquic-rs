@@ -31,6 +31,9 @@ impl Context {
         mut handle: impl Executor,
         config: Config,
     ) -> Result<Context, Error> {
+        // Check for common errors in the `Config`.
+        config.verify()?;
+
         let (inner, recv_con, new_connection_handle, close_handle) =
             ContextInner::new(listen_address, config)?;
 

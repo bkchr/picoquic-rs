@@ -152,7 +152,6 @@ dual licensed as above, without any additional terms or conditions.
 */
 extern crate bytes;
 extern crate failure;
-#[macro_use]
 extern crate failure_derive;
 #[macro_use]
 extern crate futures;
@@ -168,12 +167,12 @@ extern crate tokio_executor;
 extern crate tokio_timer;
 extern crate tokio_udp;
 
+#[macro_use]
+mod error;
 mod config;
 mod connection;
 mod context;
 mod context_inner;
-#[macro_use]
-mod error;
 mod ffi;
 mod stream;
 mod unbounded_with_error;
