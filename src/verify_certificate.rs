@@ -1,4 +1,4 @@
-use {ConnectionId, ConnectionType};
+use crate::{ConnectionId, ConnectionType};
 
 pub use openssl::{
     error::ErrorStack,

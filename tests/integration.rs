@@ -1,9 +1,9 @@
-extern crate bytes;
-extern crate futures;
-extern crate openssl;
-extern crate picoquic;
-extern crate timebomb;
-extern crate tokio;
+
+use futures;
+
+
+use timebomb;
+use tokio;
 
 use picoquic::{
     default_verify_certificate, Config, Connection, ConnectionId, ConnectionType, Context, Error,

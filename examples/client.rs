@@ -1,7 +1,4 @@
-extern crate bytes;
-extern crate futures;
-extern crate picoquic;
-extern crate tokio;
+use tokio;
 
 use picoquic::{Config, Context};
 

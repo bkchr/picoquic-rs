@@ -4,11 +4,11 @@ use super::{
     },
     Pointer,
 };
-use connection;
-use error::*;
+use crate::connection;
+use crate::error::*;
 use picoquic_sys::picoquic::picoquic_get_earliest_cnx_to_wake;
-use stream;
-use ConnectionType;
+use crate::stream;
+use crate::ConnectionType;
 
 use picoquic_sys::picoquic::{
     self, picoquic_close, picoquic_cnx_t, picoquic_create_client_cnx, picoquic_delete_cnx,

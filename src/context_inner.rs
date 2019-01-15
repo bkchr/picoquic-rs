@@ -1,8 +1,8 @@
-use config::{Config, Role};
-use connection::{self, Connection};
-use error::*;
-use ffi::{self, QuicCtx};
-use stream;
+use crate::config::{Config, Role};
+use crate::connection::{self, Connection};
+use crate::error::*;
+use crate::ffi::{self, QuicCtx};
+use crate::stream;
 
 use picoquic_sys::picoquic::{
     picoquic_call_back_event_t, picoquic_cnx_t, PICOQUIC_MAX_PACKET_SIZE,

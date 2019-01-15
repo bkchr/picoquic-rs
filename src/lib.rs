@@ -150,22 +150,11 @@ Unless you explicitly state otherwise, any contribution intentionally submitted
 for inclusion in the work by you, as defined in the Apache-2.0 license, shall be
 dual licensed as above, without any additional terms or conditions.
 */
-extern crate bytes;
-extern crate failure;
-extern crate failure_derive;
+
 #[macro_use]
 extern crate futures;
-extern crate libc;
 #[macro_use]
 extern crate log;
-extern crate openssl;
-extern crate openssl_sys;
-extern crate parking_lot;
-extern crate picoquic_sys;
-extern crate socket2;
-extern crate tokio_executor;
-extern crate tokio_timer;
-extern crate tokio_udp;
 
 #[macro_use]
 mod error;

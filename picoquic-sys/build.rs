@@ -1,6 +1,6 @@
-extern crate bindgen;
-extern crate cc;
-extern crate glob;
+use bindgen;
+use cc;
+use glob;
 
 use std::env;
 use std::path::PathBuf;

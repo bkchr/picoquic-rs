@@ -1,5 +1,5 @@
 use super::VerifyCertificate;
-use error::*;
+use crate::error::*;
 use picoquic_sys::picoquic::PICOQUIC_RESET_SECRET_SIZE;
 
 use std::path::PathBuf;
@@ -48,7 +48,7 @@ pub struct Config {
     /// Default: false
     pub client_authentication: bool,
     /// The handler that should verify the peer certificate in the TLS handshake.
-    pub verify_certificate_handler: Option<Box<VerifyCertificate>>,
+    pub verify_certificate_handler: Option<Box<dyn VerifyCertificate>>,
 }
 
 impl Config {

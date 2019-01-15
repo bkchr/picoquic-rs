@@ -11,6 +11,7 @@ of the IETF.
 """
 repository = "https://github.com/bkchr/picoquic-rs"
 keywords = ["quic", "future", "tokio", "protocol", "picoquic"]
+edition = "2018"
 
 [badges.travis-ci]
 repository = "bkchr/picoquic-rs"

@@ -11,6 +11,7 @@ description = """
 Provides bindings to the `picoquic` c-library. Please don't use this crate directly.
 Use the `picoquic` crate.
 """
+edition = "2018"
 
 [dependencies]
 openssl-sys = "^0.9.28"

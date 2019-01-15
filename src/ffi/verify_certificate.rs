@@ -1,6 +1,6 @@
-use error::*;
-use ffi::{Connection, QuicCtx};
-use verify_certificate::VerifyCertificate;
+use crate::error::*;
+use crate::ffi::{Connection, QuicCtx};
+use crate::verify_certificate::VerifyCertificate;
 
 use picoquic_sys::picoquic::{
     picoquic_cnx_t, picoquic_set_verify_certificate_callback, picoquic_verify_sign_cb_fn,
@@ -26,7 +26,7 @@ use openssl_sys::{X509_V_ERR_CERT_HAS_EXPIRED, X509_V_ERR_CERT_REVOKED, X509_V_E
 pub type PubKey = PKey<Public>;
 
 /// Sets up the verify certificate callback in picoquic
-pub fn setup_callback(quic: &QuicCtx, handler: Box<VerifyCertificate>) -> Result<(), Error> {
+pub fn setup_callback(quic: &QuicCtx, handler: Box<dyn VerifyCertificate>) -> Result<(), Error> {
     let result;
     unsafe {
         let ctx = Box::into_raw(Box::new(handler));
@@ -128,7 +128,7 @@ unsafe extern "C" fn verify_certificate_callback(
 }
 
 fn verify_certificate_callback_impl(
-    handler: &mut Box<Box<VerifyCertificate>>,
+    handler: &mut Box<Box<dyn VerifyCertificate>>,
     cnx: *mut picoquic_cnx_t,
     certs: *mut ptls_iovec_t,
     num_certs: usize,
@@ -171,8 +171,8 @@ fn verify_certificate_callback_impl(
     0
 }
 
-fn get_handler(ptr: *mut c_void) -> Box<Box<VerifyCertificate>> {
-    unsafe { Box::from_raw(ptr as *mut Box<VerifyCertificate>) }
+fn get_handler(ptr: *mut c_void) -> Box<Box<dyn VerifyCertificate>> {
+    unsafe { Box::from_raw(ptr as *mut Box<dyn VerifyCertificate>) }
 }
 
 /// Converts a openssl error to a picotls error

@@ -1,7 +1,7 @@
 use super::{connection::ConnectionIter, stateless_packet::StatelessPacketIter, Pointer};
-use config::{Config, FileFormat};
-use error::*;
-use ffi::verify_certificate;
+use crate::config::{Config, FileFormat};
+use crate::error::*;
+use crate::ffi::verify_certificate;
 
 use picoquic_sys::picoquic::{
     self, picoquic_create, picoquic_current_time, picoquic_free, picoquic_get_next_wake_delay,
@@ -171,7 +171,7 @@ impl QuicCtx {
         }
     }
 
-    pub fn stateless_packet_iter(&self) -> StatelessPacketIter {
+    pub fn stateless_packet_iter(&self) -> StatelessPacketIter<'_> {
         StatelessPacketIter::new(*self.quic)
     }
 
