@@ -341,12 +341,12 @@ unsafe extern "C" fn new_connection_callback(
     length: usize,
     event: picoquic_call_back_event_t,
     ctx: *mut c_void,
-) {
+) -> i32 {
     assert!(!ctx.is_null());
 
     // early out, if the connection is already going to be closed, we don't need to handle it.
     if ffi::Connection::from(cnx).is_going_to_close() {
-        return;
+        return 0;
     }
 
     let ctx = get_context(ctx);
@@ -366,6 +366,7 @@ unsafe extern "C" fn new_connection_callback(
     }
 
     mem::forget(ctx);
+    0
 }
 
 #[derive(Clone)]

@@ -273,11 +273,13 @@ impl Context {
         is_client: bool,
         local_addr: SocketAddr,
     ) -> (Arc<Mutex<Context>>, *mut c_void, NewStreamHandle) {
-        let (send_create_stream, recv_create_stream) = unbounded_with_error();
+        let (send_create_stream, mut recv_create_stream) = unbounded_with_error();
 
         let new_stream_handle = NewStreamHandle {
             send: send_create_stream,
         };
+
+        let _ = recv_create_stream.poll();
 
         let ctx = Arc::new(Mutex::new(Context {
             send_msg,
@@ -411,7 +413,7 @@ impl Future for Context {
             return Ok(Ready(()));
         }
 
-        if self.wait_for_ready_state.is_some() && self.cnx.is_ready() {
+        if self.wait_for_ready_state.is_some() && self.cnx.is_client_ready_start() {
             self.process_wait_for_ready_state();
         }
 
@@ -440,7 +442,7 @@ unsafe extern "C" fn recv_data_callback(
     length: usize,
     event: picoquic_call_back_event_t,
     ctx: *mut c_void,
-) {
+) -> i32 {
     assert!(!ctx.is_null());
     let ctx = get_context(ctx);
 
@@ -459,6 +461,8 @@ unsafe extern "C" fn recv_data_callback(
         // the context must not be dereferenced!
         mem::forget(ctx);
     }
+
+    0
 }
 
 /// A handle to create new `Stream`s for a connection.

@@ -6,17 +6,18 @@ use super::{
 };
 use crate::connection;
 use crate::error::*;
-use picoquic_sys::picoquic::picoquic_get_earliest_cnx_to_wake;
 use crate::stream;
 use crate::ConnectionType;
+use picoquic_sys::picoquic::picoquic_get_earliest_cnx_to_wake;
 
 use picoquic_sys::picoquic::{
     self, picoquic_close, picoquic_cnx_t, picoquic_create_client_cnx, picoquic_delete_cnx,
     picoquic_enable_keep_alive, picoquic_get_cnx_state, picoquic_get_local_addr,
     picoquic_get_local_cnxid, picoquic_get_local_error, picoquic_get_peer_addr,
     picoquic_get_remote_error, picoquic_is_client, picoquic_is_handshake_error,
-    picoquic_prepare_packet, picoquic_quic_t, picoquic_state_enum_picoquic_state_closing,
-    picoquic_state_enum_picoquic_state_disconnected, picoquic_state_enum_picoquic_state_ready,
+    picoquic_prepare_packet, picoquic_quic_t,
+    picoquic_state_enum_picoquic_state_client_ready_start,
+    picoquic_state_enum_picoquic_state_closing, picoquic_state_enum_picoquic_state_disconnected,
     picoquic_val64_connection_id, PICOQUIC_ERROR_DISCONNECTED,
 };
 
@@ -148,9 +149,9 @@ impl Connection {
         self.state() == picoquic_state_enum_picoquic_state_disconnected
     }
 
-    /// Is the connection ready to be used?
-    pub fn is_ready(self) -> bool {
-        self.state() == picoquic_state_enum_picoquic_state_ready
+    /// Is the client connection ready to start.
+    pub fn is_client_ready_start(self) -> bool {
+        self.state() == picoquic_state_enum_picoquic_state_client_ready_start
     }
 
     /// Is the connection going to close? (aka in closing, draining or disconnected state)
