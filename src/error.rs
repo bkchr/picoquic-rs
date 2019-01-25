@@ -116,6 +116,8 @@ pub enum ErrorKind {
     Io(io::Error),
     #[fail(display = "Spawn error {}", _0)]
     Spawn(SpawnError),
+    #[fail(display = "Tried to send data on an unidirectional receiving side Stream.")]
+    SendOnUnidirectional,
 }
 
 //FIXME: Remove when upstream provides a better bail macro

@@ -164,7 +164,7 @@ mod context;
 mod context_inner;
 mod ffi;
 mod stream;
-mod unbounded_with_error;
+mod channel_with_error;
 mod verify_certificate;
 
 pub use self::config::{Config, FileFormat, Role};

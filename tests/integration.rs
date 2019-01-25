@@ -1,6 +1,4 @@
-
 use futures;
-
 
 use timebomb;
 use tokio;
@@ -151,7 +149,7 @@ fn client_connects_creates_stream_and_sends_data<F, T, C>(
     assert_eq!(stream.peer_addr(), ([127, 0, 0, 1], addr.port()).into());
     assert_ne!(stream.peer_addr(), stream.local_addr());
 
-    evt_loop
+    let _stream = evt_loop
         .block_on(stream.send(Bytes::from(send_data)))
         .unwrap();
 

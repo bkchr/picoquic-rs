@@ -1,9 +1,6 @@
 use crate::error::*;
 
-use futures::{
-    sync::mpsc::{self, unbounded, UnboundedReceiver, UnboundedSender},
-    Poll, Sink, StartSend, Stream,
-};
+use futures::{sync::mpsc, Poll, Sink, StartSend, Stream};
 
 use std::{fmt, sync::Arc};
 
@@ -38,6 +35,23 @@ impl ErrorState {
     }
 }
 
+/// A trait that can be used to check if a channel is closed.
+pub trait IsClosed {
+    fn is_closed(&self) -> bool;
+}
+
+impl<T> IsClosed for mpsc::Sender<T> {
+    fn is_closed(&self) -> bool {
+        mpsc::Sender::is_closed(self)
+    }
+}
+
+impl<T> IsClosed for mpsc::UnboundedSender<T> {
+    fn is_closed(&self) -> bool {
+        mpsc::UnboundedSender::is_closed(self)
+    }
+}
+
 /// Error used by `Sender` to distinguish between an error set for the channel and
 /// a normal `futures::SendError`.
 pub enum SendError<T> {
@@ -45,23 +59,14 @@ pub enum SendError<T> {
     Normal(T),
 }
 
-impl<T> SendError<T> {
-    pub fn into_error<F: Fn(T) -> Error>(self, map_err: F) -> Error {
-        match self {
-            SendError::Channel(err, _) => err,
-            SendError::Normal(data) => map_err(data),
-        }
-    }
-}
-
 /// A sender with an associated error that can be set by the receiver side.
 #[derive(Debug)]
-pub struct Sender<T> {
-    sender: UnboundedSender<T>,
+pub struct SenderWithError<S> {
+    sender: S,
     error_state: ErrorState,
 }
 
-impl<T> Clone for Sender<T> {
+impl<S: Clone> Clone for SenderWithError<S> {
     fn clone(&self) -> Self {
         Self {
             sender: self.sender.clone(),
@@ -70,8 +75,8 @@ impl<T> Clone for Sender<T> {
     }
 }
 
-impl<T> Sender<T> {
-    fn new(sender: UnboundedSender<T>, error_state: ErrorState) -> Self {
+impl<S: IsClosed> SenderWithError<S> {
+    fn new(sender: S, error_state: ErrorState) -> Self {
         Self {
             sender,
             error_state,
@@ -87,24 +92,18 @@ impl<T> Sender<T> {
         }
     }
 
-    pub fn unbounded_send(&mut self, data: T) -> Result<(), SendError<T>> {
-        self.sender
-            .unbounded_send(data)
-            .map_err(|e| self.map_err(e))
-    }
-
-    fn map_err(&mut self, e: mpsc::SendError<T>) -> SendError<T> {
+    fn map_err<E>(&mut self, e: E) -> SendError<E> {
         if let Some(err) = self.check_for_error() {
-            SendError::Channel(err, e.into_inner())
+            SendError::Channel(err, e)
         } else {
-            SendError::Normal(e.into_inner())
+            SendError::Normal(e)
         }
     }
 }
 
-impl<T> Sink for Sender<T> {
-    type SinkItem = T;
-    type SinkError = SendError<T>;
+impl<S: Sink + IsClosed> Sink for SenderWithError<S> {
+    type SinkItem = <S as Sink>::SinkItem;
+    type SinkError = SendError<<S as Sink>::SinkError>;
 
     fn start_send(&mut self, item: Self::SinkItem) -> StartSend<Self::SinkItem, Self::SinkError> {
         self.sender.start_send(item).map_err(|e| self.map_err(e))
@@ -115,14 +114,31 @@ impl<T> Sink for Sender<T> {
     }
 }
 
+/// A channel that can be closed.
+pub trait Close {
+    fn close(&mut self);
+}
+
+impl<T> Close for mpsc::Receiver<T> {
+    fn close(&mut self) {
+        mpsc::Receiver::close(self)
+    }
+}
+
+impl<T> Close for mpsc::UnboundedReceiver<T> {
+    fn close(&mut self) {
+        mpsc::UnboundedReceiver::close(self)
+    }
+}
+
 /// A receiver with the ability to propagate an error to the sender.
-pub struct Receiver<T> {
-    receiver: UnboundedReceiver<T>,
+pub struct ReceiverWithError<R> {
+    receiver: R,
     error_state: ErrorState,
 }
 
-impl<T> Receiver<T> {
-    fn new(receiver: UnboundedReceiver<T>, error_state: ErrorState) -> Self {
+impl<R: Close> ReceiverWithError<R> {
+    fn new(receiver: R, error_state: ErrorState) -> Self {
         Self {
             receiver,
             error_state,
@@ -140,8 +156,8 @@ impl<T> Receiver<T> {
     }
 }
 
-impl<T> Stream for Receiver<T> {
-    type Item = T;
+impl<R: Stream> Stream for ReceiverWithError<R> {
+    type Item = <R as Stream>::Item;
     type Error = Error;
 
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
@@ -149,12 +165,28 @@ impl<T> Stream for Receiver<T> {
     }
 }
 
-pub fn unbounded_with_error<T>() -> (Sender<T>, Receiver<T>) {
-    let (sender, receiver) = unbounded();
+pub type UnboundedSender<T> = SenderWithError<mpsc::UnboundedSender<T>>;
+pub type UnboundedReceiver<T> = ReceiverWithError<mpsc::UnboundedReceiver<T>>;
+
+pub fn unbounded<T>() -> (UnboundedSender<T>, UnboundedReceiver<T>) {
+    let (sender, receiver) = mpsc::unbounded();
     let error_state = ErrorState::new();
 
     (
-        Sender::new(sender, error_state.clone()),
-        Receiver::new(receiver, error_state),
+        SenderWithError::new(sender, error_state.clone()),
+        ReceiverWithError::new(receiver, error_state),
+    )
+}
+
+pub type Sender<T> = SenderWithError<mpsc::Sender<T>>;
+pub type Receiver<T> = ReceiverWithError<mpsc::Receiver<T>>;
+
+pub fn channel<T>(buffer: usize) -> (Sender<T>, Receiver<T>) {
+    let (sender, receiver) = mpsc::channel(buffer);
+    let error_state = ErrorState::new();
+
+    (
+        SenderWithError::new(sender, error_state.clone()),
+        ReceiverWithError::new(receiver, error_state),
     )
 }

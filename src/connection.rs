@@ -1,19 +1,16 @@
+use crate::channel_with_error::{unbounded, SendError, UnboundedReceiver, UnboundedSender};
 use crate::error::*;
 use crate::ffi::{self, QuicCtx};
 use crate::stream::{self, Stream};
-use crate::unbounded_with_error::{unbounded_with_error, Receiver, SendError, Sender};
 
 use picoquic_sys::picoquic::{
     self, picoquic_call_back_event_t, picoquic_cnx_t, picoquic_set_callback,
 };
 
 use futures::{
-    sync::{
-        mpsc::{unbounded, UnboundedReceiver, UnboundedSender},
-        oneshot,
-    },
+    sync::{mpsc, oneshot},
     Async::{NotReady, Ready},
-    Future, Poll, Stream as FStream,
+    Future, Poll, Sink, Stream as FStream,
 };
 
 use std::{
@@ -24,7 +21,6 @@ use std::{
     mem,
     net::SocketAddr,
     os::raw::c_void,
-    slice,
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -48,7 +44,7 @@ pub enum Type {
 }
 
 struct ConnectionBuilder {
-    msg_recv: UnboundedReceiver<Message>,
+    msg_recv: mpsc::UnboundedReceiver<Message>,
     close_send: oneshot::Sender<()>,
     peer_addr: SocketAddr,
     local_addr: SocketAddr,
@@ -58,7 +54,7 @@ struct ConnectionBuilder {
 
 impl ConnectionBuilder {
     fn new(
-        msg_recv: UnboundedReceiver<Message>,
+        msg_recv: mpsc::UnboundedReceiver<Message>,
         close_send: oneshot::Sender<()>,
         peer_addr: SocketAddr,
         local_addr: SocketAddr,
@@ -90,7 +86,7 @@ impl ConnectionBuilder {
 
 /// Represents a connection to a peer.
 pub struct Connection {
-    msg_recv: UnboundedReceiver<Message>,
+    msg_recv: mpsc::UnboundedReceiver<Message>,
     close_send: Option<oneshot::Sender<()>>,
     peer_addr: SocketAddr,
     local_addr: SocketAddr,
@@ -199,7 +195,7 @@ impl Connection {
         is_client: bool,
         keep_alive_interval: Option<Duration>,
     ) -> (ConnectionBuilder, Arc<Mutex<Context>>, *mut c_void) {
-        let (sender, msg_recv) = unbounded();
+        let (sender, msg_recv) = mpsc::unbounded();
         let (close_send, close_recv) = oneshot::channel();
 
         let (ctx, c_ctx, new_stream_handle) =
@@ -246,9 +242,9 @@ impl Connection {
 }
 
 pub(crate) struct Context {
-    send_msg: UnboundedSender<Message>,
+    send_msg: mpsc::UnboundedSender<Message>,
     close_recv: oneshot::Receiver<()>,
-    recv_create_stream: Receiver<(stream::Type, oneshot::Sender<Result<Stream, Error>>)>,
+    recv_create_stream: UnboundedReceiver<(stream::Type, oneshot::Sender<Result<Stream, Error>>)>,
     streams: HashMap<stream::Id, stream::Context>,
     cnx: ffi::Connection,
     closed: bool,
@@ -268,12 +264,12 @@ pub(crate) struct Context {
 impl Context {
     fn new(
         cnx: ffi::Connection,
-        send_msg: UnboundedSender<Message>,
+        send_msg: mpsc::UnboundedSender<Message>,
         close_recv: oneshot::Receiver<()>,
         is_client: bool,
         local_addr: SocketAddr,
     ) -> (Arc<Mutex<Context>>, *mut c_void, NewStreamHandle) {
-        let (send_create_stream, mut recv_create_stream) = unbounded_with_error();
+        let (send_create_stream, mut recv_create_stream) = unbounded();
 
         let new_stream_handle = NewStreamHandle {
             send: send_create_stream,
@@ -308,16 +304,22 @@ impl Context {
         (ctx, c_ctx, new_stream_handle)
     }
 
-    fn recv_data(&mut self, id: stream::Id, data: &[u8], event: picoquic_call_back_event_t) {
+    fn recv_data(
+        &mut self,
+        id: stream::Id,
+        ptr: *mut u8,
+        length: usize,
+        event: picoquic_call_back_event_t,
+    ) {
         let new_stream_handle = match self.streams.entry(id) {
             Occupied(mut entry) => {
-                entry.get_mut().recv_data(data, event);
+                entry.get_mut().picoquic_callback(ptr, length, event);
                 None
             }
             Vacant(entry) => {
                 let (stream, mut ctx) = Stream::new(id, self.cnx, self.local_addr, self.is_client);
 
-                ctx.recv_data(data, event);
+                ctx.picoquic_callback(ptr, length, event);
                 entry.insert(ctx);
                 Some(stream)
             }
@@ -454,9 +456,9 @@ unsafe extern "C" fn recv_data_callback(
         ctx.check_and_handle_error();
         ctx.close();
     } else {
-        let data = slice::from_raw_parts(bytes, length as usize);
-
-        ctx.lock().unwrap().recv_data(stream_id, data, event);
+        ctx.lock()
+            .unwrap()
+            .recv_data(stream_id, bytes, length, event);
 
         // the context must not be dereferenced!
         mem::forget(ctx);
@@ -468,7 +470,7 @@ unsafe extern "C" fn recv_data_callback(
 /// A handle to create new `Stream`s for a connection.
 #[derive(Clone)]
 pub struct NewStreamHandle {
-    send: Sender<(stream::Type, oneshot::Sender<Result<Stream, Error>>)>,
+    send: UnboundedSender<(stream::Type, oneshot::Sender<Result<Stream, Error>>)>,
 }
 
 impl NewStreamHandle {
@@ -485,13 +487,10 @@ impl NewStreamHandle {
     fn new_stream_handle(&mut self, stype: stream::Type) -> NewStreamFuture {
         let (send, recv) = oneshot::channel();
 
-        let _ = self
-            .send
-            .unbounded_send((stype, send))
-            .map_err(|e| match e {
-                SendError::Channel(e, send) => send.1.send(Err(e)),
-                SendError::Normal(send) => send.1.send(Err(ErrorKind::Unknown.into())),
-            });
+        let _ = self.send.start_send((stype, send)).map_err(|e| match e {
+            SendError::Channel(e, send) => send.into_inner().1.send(Err(e)),
+            SendError::Normal(send) => send.into_inner().1.send(Err(ErrorKind::Unknown.into())),
+        });
 
         NewStreamFuture { recv }
     }

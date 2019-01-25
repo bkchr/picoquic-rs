@@ -253,10 +253,10 @@ impl Future for ContextInner {
 
             self.check_for_incoming_data(current_time);
 
-            let _ = self.send_stateless_packets();
-
             // This checks all connection contexts if there is data that needs to be send
             assert!(self.context.lock().unwrap().poll().is_ok());
+
+            let _ = self.send_stateless_packets();
 
             // All data that was send by the connection contexts, is collected to `Packet`'s per
             // connection and is send via the `UdpSocket`.
