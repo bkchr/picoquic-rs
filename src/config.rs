@@ -49,6 +49,9 @@ pub struct Config {
     pub client_authentication: bool,
     /// The handler that should verify the peer certificate in the TLS handshake.
     pub verify_certificate_handler: Option<Box<dyn VerifyCertificate>>,
+    /// The default size used when creating the sending channel for a `Stream`.
+    /// Default is 100.
+    pub stream_send_channel_default_size: usize,
 }
 
 impl Config {
@@ -72,6 +75,7 @@ impl Config {
             keep_alive_sender: other.keep_alive_sender,
             client_authentication: other.client_authentication,
             verify_certificate_handler: None,
+            stream_send_channel_default_size: other.stream_send_channel_default_size,
         }
     }
 
@@ -130,6 +134,11 @@ impl Config {
         self.root_certificates = Some((format, certificates));
     }
 
+    /// Sets the default size of the `Stream` send channel.
+    pub fn set_stream_send_channel_default_size(&mut self, size: usize) {
+        self.stream_send_channel_default_size = size;
+    }
+
     /// Verify this `Config` for common errors.
     pub(crate) fn verify(&self) -> Result<(), Error> {
         let private_key_set = self.private_key.is_some() || self.private_key_filename.is_some();
@@ -168,6 +177,7 @@ impl Default for Config {
             keep_alive_sender: Role::Client,
             client_authentication: false,
             verify_certificate_handler: None,
+            stream_send_channel_default_size: 100,
         }
     }
 }

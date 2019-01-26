@@ -144,6 +144,7 @@ impl Connection {
         len: usize,
         event: picoquic_call_back_event_t,
         keep_alive_interval: Option<Duration>,
+        stream_send_channel_default_size: usize,
     ) -> (Connection, Arc<Mutex<Context>>) {
         let cnx = ffi::Connection::from(cnx);
 
@@ -153,6 +154,7 @@ impl Connection {
             cnx.local_addr(),
             false,
             keep_alive_interval,
+            stream_send_channel_default_size,
         );
 
         let con = builder.build(cnx.local_id());
@@ -174,11 +176,18 @@ impl Connection {
         current_time: u64,
         keep_alive_interval: Option<Duration>,
         created_sender: oneshot::Sender<Result<Connection, Error>>,
+        stream_send_channel_default_size: usize,
     ) -> Result<(Arc<Mutex<Context>>), Error> {
         let cnx = ffi::Connection::new(quic, peer_addr, current_time, server_name)?;
 
-        let (builder, ctx, _) =
-            Self::create_builder(cnx, peer_addr, local_addr, true, keep_alive_interval);
+        let (builder, ctx, _) = Self::create_builder(
+            cnx,
+            peer_addr,
+            local_addr,
+            true,
+            keep_alive_interval,
+            stream_send_channel_default_size,
+        );
 
         // set the builder and the sender as waiting for ready state payload
         ctx.lock()
@@ -194,12 +203,19 @@ impl Connection {
         local_addr: SocketAddr,
         is_client: bool,
         keep_alive_interval: Option<Duration>,
+        stream_send_channel_default_size: usize,
     ) -> (ConnectionBuilder, Arc<Mutex<Context>>, *mut c_void) {
         let (sender, msg_recv) = mpsc::unbounded();
         let (close_send, close_recv) = oneshot::channel();
 
-        let (ctx, c_ctx, new_stream_handle) =
-            Context::new(cnx, sender, close_recv, is_client, local_addr);
+        let (ctx, c_ctx, new_stream_handle) = Context::new(
+            cnx,
+            sender,
+            close_recv,
+            is_client,
+            local_addr,
+            stream_send_channel_default_size,
+        );
 
         if let Some(interval) = keep_alive_interval {
             cnx.enable_keep_alive(interval);
@@ -259,6 +275,7 @@ pub(crate) struct Context {
         oneshot::Sender<Result<Connection, Error>>,
     )>,
     local_addr: SocketAddr,
+    stream_send_channel_default_size: usize,
 }
 
 impl Context {
@@ -268,6 +285,7 @@ impl Context {
         close_recv: oneshot::Receiver<()>,
         is_client: bool,
         local_addr: SocketAddr,
+        stream_send_channel_default_size: usize,
     ) -> (Arc<Mutex<Context>>, *mut c_void, NewStreamHandle) {
         let (send_create_stream, mut recv_create_stream) = unbounded();
 
@@ -288,6 +306,7 @@ impl Context {
             wait_for_ready_state: None,
             local_addr,
             close_recv,
+            stream_send_channel_default_size,
         }));
 
         // Convert the `Context` to a `*mut c_void` and reset the callback to the
@@ -317,7 +336,13 @@ impl Context {
                 None
             }
             Vacant(entry) => {
-                let (stream, mut ctx) = Stream::new(id, self.cnx, self.local_addr, self.is_client);
+                let (stream, mut ctx) = Stream::new(
+                    id,
+                    self.cnx,
+                    self.local_addr,
+                    self.is_client,
+                    self.stream_send_channel_default_size,
+                );
 
                 ctx.handle_callback(ptr, length, event);
                 entry.insert(ctx);
@@ -343,7 +368,13 @@ impl Context {
                     );
                     self.next_stream_id += 1;
 
-                    let (stream, ctx) = Stream::new(id, self.cnx, self.local_addr, self.is_client);
+                    let (stream, ctx) = Stream::new(
+                        id,
+                        self.cnx,
+                        self.local_addr,
+                        self.is_client,
+                        self.stream_send_channel_default_size,
+                    );
                     assert!(self.streams.insert(id, ctx).is_none());
 
                     let _ = sender.send(Ok(stream));

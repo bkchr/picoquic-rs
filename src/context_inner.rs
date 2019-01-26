@@ -50,6 +50,7 @@ pub struct ContextInner {
     /// The keep alive interval for client connections
     client_keep_alive_interval: Option<Duration>,
     close_handle_recv: oneshot::Receiver<()>,
+    stream_send_channel_default_size: usize,
 }
 
 impl ContextInner {
@@ -65,6 +66,7 @@ impl ContextInner {
         ),
         Error,
     > {
+        let stream_send_channel_default_size = config.stream_send_channel_default_size;
         let (client_keep_alive_interval, server_keep_alive_interval) =
             match config.keep_alive_sender {
                 Role::Client => (config.keep_alive_interval, None),
@@ -72,7 +74,11 @@ impl ContextInner {
             };
 
         let (send, recv) = unbounded();
-        let (context, c_ctx) = CContext::new(send, server_keep_alive_interval);
+        let (context, c_ctx) = CContext::new(
+            send,
+            server_keep_alive_interval,
+            stream_send_channel_default_size,
+        );
 
         let quic = QuicCtx::new(config, c_ctx, Some(new_connection_callback))?;
 
@@ -91,6 +97,7 @@ impl ContextInner {
                 client_keep_alive_interval,
                 close_handle_recv,
                 not_send_length: None,
+                stream_send_channel_default_size,
             },
             recv,
             connect,
@@ -116,6 +123,7 @@ impl ContextInner {
                         current_time,
                         self.client_keep_alive_interval,
                         sender,
+                        self.stream_send_channel_default_size,
                     ) {
                         Ok(r) => r,
                         Err(e) => {
@@ -288,17 +296,20 @@ struct CContext {
     connections: Vec<Arc<Mutex<connection::Context>>>,
     send_con: UnboundedSender<Connection>,
     server_keep_alive_interval: Option<Duration>,
+    stream_send_channel_default_size: usize,
 }
 
 impl CContext {
     fn new(
         send_con: UnboundedSender<Connection>,
         server_keep_alive_interval: Option<Duration>,
+        stream_send_channel_default_size: usize,
     ) -> (Arc<Mutex<CContext>>, *mut c_void) {
         let ctx = Arc::new(Mutex::new(CContext {
             connections: Vec::new(),
             send_con,
             server_keep_alive_interval,
+            stream_send_channel_default_size,
         }));
 
         let c_ctx = Arc::into_raw(ctx.clone()) as *mut c_void;
@@ -360,6 +371,7 @@ unsafe extern "C" fn new_connection_callback(
             length,
             event,
             ctx_locked.server_keep_alive_interval,
+            ctx_locked.stream_send_channel_default_size,
         );
 
         ctx_locked.new_connection(con, con_ctx);

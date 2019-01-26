@@ -84,10 +84,12 @@ impl Stream {
         cnx: ffi::Connection,
         local_addr: SocketAddr,
         is_client_con: bool,
+        send_channel_default_size: usize,
     ) -> (Stream, Context) {
         let (recv_msg, recv_send) = unbounded();
         let (control_msg, recv_control) = unbounded();
-        let (send_data, recv_data) = create_send_and_recv_data(id, is_client_con, 100);
+        let (send_data, recv_data) =
+            create_send_and_recv_data(id, is_client_con, send_channel_default_size);
 
         let ctx = Context::new(recv_msg, recv_control, recv_data, id, cnx, is_client_con);
         let stream = Stream {
