@@ -9,7 +9,7 @@ use picoquic::{
 };
 
 use std::{
-    fmt,
+    cmp, fmt,
     net::SocketAddr,
     sync::{
         atomic::{AtomicUsize, Ordering},
@@ -20,7 +20,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use futures::{sync::mpsc::unbounded, Future, Sink, Stream as FStream};
+use futures::{future, stream, sync::mpsc::unbounded, Future, Sink, Stream as FStream};
 
 use bytes::{Bytes, BytesMut};
 
@@ -34,6 +34,8 @@ use tokio::{
     runtime::Runtime,
     timer::{Delay, Interval},
 };
+
+use rand::{self, Rng};
 
 const TEST_SERVER_NAME: &str = "picoquic.test";
 
@@ -339,8 +341,17 @@ where
 #[test]
 fn open_multiple_streams_sends_data_and_recvs() {
     let send_data = "hello server";
-    let expected_stream_count = 4;
+    let stream_count = 4;
+    let mut data = Vec::new();
 
+    for i in 0..stream_count {
+        data.push(vec![Bytes::from(format!("{}{}", send_data, i))]);
+    }
+
+    open_multiple_streams_sends_data_and_recvs_impl(data);
+}
+
+fn open_multiple_streams_sends_data_and_recvs_impl(data: Vec<Vec<Bytes>>) {
     let addr = start_server_that_sends_received_data_back(|| get_test_config());
 
     let (mut context, mut evt_loop) = create_context_and_evt_loop_with_default_config();
@@ -351,30 +362,83 @@ fn open_multiple_streams_sends_data_and_recvs() {
 
     let mut streams = Vec::new();
 
-    for i in 0..expected_stream_count {
+    for send in &data {
         let stream = evt_loop
             .block_on(con.new_bidirectional_stream())
             .expect("creates stream");
         streams.push(
-            evt_loop
-                .block_on(stream.send(Bytes::from(format!("{}{}", send_data, i))))
-                .unwrap(),
+            stream
+                .send_all(stream::iter_ok::<_, Error>(send.clone().into_iter()))
+                .map(|v| v.0),
         );
     }
 
-    for (i, stream) in streams.into_iter().enumerate() {
-        assert_eq!(
-            format!("{}{}", send_data, i),
-            String::from_utf8(
-                evt_loop
-                    .block_on(stream.into_future().map(|(m, _)| m).map_err(|(e, _)| e))
-                    .unwrap()
-                    .unwrap()
-                    .to_vec(),
+    let streams = evt_loop.block_on(future::join_all(streams)).unwrap();
+
+    for (stream, data) in streams.into_iter().zip(data.into_iter()) {
+        let all_data = data.into_iter().fold(Vec::new(), |mut v, d| {
+            v.extend(&d);
+            v
+        });
+        let all_len = all_data.len();
+        let res = evt_loop
+            .block_on(
+                stream
+                    .map_err(|_| Vec::new())
+                    .fold(Vec::new(), move |mut v, b| {
+                        v.extend(&b);
+
+                        if v.len() < all_len {
+                            future::ok(v)
+                        } else {
+                            future::err(v)
+                        }
+                    }),
             )
-            .unwrap()
+            .err()
+            .unwrap();
+
+        assert_eq!(&all_data, &res);
+    }
+}
+
+#[test]
+fn open_multiple_streams_sends_1mb_data_and_recvs() {
+    let stream_count = 4;
+    let mut data = Vec::new();
+
+    for _ in 0..stream_count {
+        let mut send_data = vec![0; 1024 * 1024];
+        rand::thread_rng().fill(&mut send_data[..]);
+        data.push(vec![Bytes::from(send_data)]);
+    }
+
+    open_multiple_streams_sends_data_and_recvs_impl(data);
+}
+
+#[test]
+fn open_multiple_streams_sends_1mb_data_in_chunks_and_recvs() {
+    let stream_count = 4;
+    let mut data = Vec::new();
+
+    for _ in 0..stream_count {
+        let mut send_data = vec![0; 1024 * 1024];
+        rand::thread_rng().fill(&mut send_data[..]);
+        let chunks = rand::thread_rng().gen_range(100, 1000);
+        let chunk_size = (send_data.len() + chunks - 1) / chunks;
+        data.push(
+            (0..chunks)
+                .fold((Vec::new(), 0), |(mut v, i), _| {
+                    v.push(Bytes::from(
+                        &send_data[i..cmp::min(i + chunk_size, send_data.len())],
+                    ));
+                    (v, i + chunk_size)
+                })
+                .0,
         );
     }
+
+    open_multiple_streams_sends_data_and_recvs_impl(data);
 }
 
 fn open_stream_to_server_and_server_creates_new_stream_to_answer<F>(create_stream: F)
