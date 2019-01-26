@@ -159,7 +159,7 @@ impl Connection {
 
         // Now we need to call the callback once manually to process the received data
         unsafe {
-            recv_data_callback(cnx.as_ptr(), stream_id, data, len, event, c_ctx);
+            stream_callback(cnx.as_ptr(), stream_id, data, len, event, c_ctx);
         }
 
         (con, ctx)
@@ -294,7 +294,7 @@ impl Context {
         // `recv_data_callback`
         let c_ctx = unsafe {
             let c_ctx = Arc::into_raw(ctx.clone()) as *mut c_void;
-            picoquic_set_callback(cnx.as_ptr(), Some(recv_data_callback), c_ctx);
+            picoquic_set_callback(cnx.as_ptr(), Some(stream_callback), c_ctx);
             c_ctx
         };
 
@@ -304,7 +304,7 @@ impl Context {
         (ctx, c_ctx, new_stream_handle)
     }
 
-    fn recv_data(
+    fn stream_callback(
         &mut self,
         id: stream::Id,
         ptr: *mut u8,
@@ -313,13 +313,13 @@ impl Context {
     ) {
         let new_stream_handle = match self.streams.entry(id) {
             Occupied(mut entry) => {
-                entry.get_mut().picoquic_callback(ptr, length, event);
+                entry.get_mut().handle_callback(ptr, length, event);
                 None
             }
             Vacant(entry) => {
                 let (stream, mut ctx) = Stream::new(id, self.cnx, self.local_addr, self.is_client);
 
-                ctx.picoquic_callback(ptr, length, event);
+                ctx.handle_callback(ptr, length, event);
                 entry.insert(ctx);
                 Some(stream)
             }
@@ -437,7 +437,7 @@ fn get_context(ctx: *mut c_void) -> Arc<Mutex<Context>> {
     unsafe { Arc::from_raw(ctx as *mut Mutex<Context>) }
 }
 
-unsafe extern "C" fn recv_data_callback(
+unsafe extern "C" fn stream_callback(
     _: *mut picoquic_cnx_t,
     stream_id: stream::Id,
     bytes: *mut u8,
@@ -458,7 +458,7 @@ unsafe extern "C" fn recv_data_callback(
     } else {
         ctx.lock()
             .unwrap()
-            .recv_data(stream_id, bytes, length, event);
+            .stream_callback(stream_id, bytes, length, event);
 
         // the context must not be dereferenced!
         mem::forget(ctx);

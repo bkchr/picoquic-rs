@@ -19,6 +19,8 @@ use futures::{
 
 use std::{cmp, net::SocketAddr, slice};
 
+use smallvec::SmallVec;
+
 pub type Id = u64;
 
 /// A `Message` is used by the `Stream` to propagate information from the peer or to send
@@ -184,13 +186,16 @@ pub(crate) struct Context {
     send_data: Option<ReceiverWithError<Bytes>>,
     control_msg: UnboundedReceiver<Message>,
     id: Id,
-    finished: bool,
     cnx: ffi::Connection,
     /// Is the connection this Stream belongs to, a client connection?
     is_client_con: bool,
     /// Did this stream send any data?
     data_send: bool,
-    stop_sending: bool,
+
+    stop_sending_or_fin_sent: bool,
+
+    fin_received_or_recv_msg_dropped: bool,
+
     /// The active buffer that is currently fetched when this stream wants to send data.
     active_buffer: Option<Bytes>,
 }
@@ -208,16 +213,22 @@ impl Context {
         send_data.as_mut().map(|s| {
             let _ = s.poll();
         });
+
+        let fin_received_or_recv_msg_dropped =
+            is_unidirectional(id) && is_unidirectional_send_allowed(id, is_client_con);
+        let stop_sending_or_fin_sent =
+            is_unidirectional(id) && !is_unidirectional_send_allowed(id, is_client_con);
+
         Context {
             recv_msg,
             control_msg,
             send_data,
             id,
-            finished: false,
             cnx,
             is_client_con,
             data_send: false,
-            stop_sending: false,
+            stop_sending_or_fin_sent,
+            fin_received_or_recv_msg_dropped,
             active_buffer: None,
         }
     }
@@ -227,6 +238,7 @@ impl Context {
     }
 
     fn reset(&mut self) {
+        self.stop_sending_or_fin_sent = true;
         self.close_send_data();
 
         unsafe {
@@ -241,46 +253,43 @@ impl Context {
     }
 
     fn recv_message_dropped(&mut self) {
-        self.finished = true;
+        if !self.fin_received_or_recv_msg_dropped {
+            self.fin_received_or_recv_msg_dropped = true;
 
-        if !is_unidirectional(self.id)
-            || !is_unidirectional_send_allowed(self.id, self.is_client_con)
-        {
-            unsafe {
-                picoquic_stop_sending(self.cnx.as_ptr(), self.id, 0);
+            if !is_unidirectional(self.id)
+                || !is_unidirectional_send_allowed(self.id, self.is_client_con)
+            {
+                unsafe {
+                    picoquic_stop_sending(self.cnx.as_ptr(), self.id, 0);
+                }
             }
         }
     }
 
-    pub fn picoquic_callback(
+    pub fn handle_callback(
         &mut self,
         ptr: *mut u8,
         length: usize,
         event: picoquic_call_back_event_t,
     ) {
         if event == picoquic::picoquic_call_back_event_t_picoquic_callback_prepare_to_send {
-            self.send_data(ptr, length);
+            self.handle_send_data(ptr, length);
         } else {
             let data = unsafe { slice::from_raw_parts(ptr, length) };
 
-            if !data.is_empty() {
-                if self.finished {
-                    error!("stream({}) received data after being finished!", self.id);
-                } else {
-                    let data = BytesMut::from(data);
-
-                    self.recv_message(Message::RecvData(data));
-                }
+            if !data.is_empty() && !self.fin_received_or_recv_msg_dropped {
+                let data = BytesMut::from(data);
+                self.recv_message(Message::RecvData(data));
             }
 
             if event == picoquic::picoquic_call_back_event_t_picoquic_callback_stream_reset {
-                self.finished = true;
+                self.fin_received_or_recv_msg_dropped = true;
                 self.recv_message(Message::Reset);
             } else if event == picoquic::picoquic_call_back_event_t_picoquic_callback_stop_sending {
-                self.stop_sending = true;
+                self.stop_sending_or_fin_sent = true;
                 self.close_send_data();
             } else if event == picoquic::picoquic_call_back_event_t_picoquic_callback_stream_fin {
-                self.finished = true;
+                self.fin_received_or_recv_msg_dropped = true;
                 self.recv_message(Message::Close);
             }
         }
@@ -297,48 +306,58 @@ impl Context {
         self.recv_message(Message::Close);
     }
 
-    fn send_data(&mut self, ctx: *mut u8, max_length: usize) {
-        let buffers: &mut [Option<Bytes>; 8] =
-            &mut [None, None, None, None, None, None, None, None];
+    /// Collect buffers into the given `buffers` parameter that should be send.
+    ///
+    /// # Returns
+    ///
+    /// Returns the size of all collected buffers and if the `fin` bit should be set.
+    fn collect_buffers_to_send(
+        &mut self,
+        max_length: usize,
+        buffers: &mut SmallVec<[Bytes; 32]>,
+    ) -> (usize, bool) {
         let mut size = 0;
         let mut fin = false;
 
-        for buffer in buffers.iter_mut() {
-            match self.active_buffer.take() {
-                Some(buf) => {
-                    size += buf.len();
-                    *buffer = Some(buf);
-                }
-                None => match self.send_data.as_mut() {
-                    Some(ref mut recv) => {
-                        match recv.poll().expect("Receiver never returns an error.") {
-                            Ready(Some(buf)) => {
-                                size += buf.len();
-                                *buffer = Some(buf);
-                            }
-                            Ready(None) => {
-                                fin = true;
-                                break;
-                            }
-                            NotReady => break,
-                        }
-                    }
-                    None => {
-                        fin = true;
-                        break;
-                    }
-                },
-            }
+        if let Some(buf) = self.active_buffer.take() {
+            size += buf.len();
+            buffers.push(buf);
+        }
 
-            if size > max_length {
-                break;
+        while size <= max_length {
+            match self.send_data.as_mut() {
+                Some(ref mut recv) => {
+                    match recv.poll().expect("Receiver never returns an error.") {
+                        Ready(Some(buf)) => {
+                            size += buf.len();
+                            buffers.push(buf);
+                        }
+                        Ready(None) => {
+                            fin = true;
+                            break;
+                        }
+                        NotReady => break,
+                    }
+                }
+                None => {
+                    fin = true;
+                    break;
+                }
             }
         }
 
+        (size, fin)
+    }
+
+    /// Picoquic wants to send data and our `Stream` was marked as active.
+    fn handle_send_data(&mut self, ctx: *mut u8, max_length: usize) {
+        let mut buffers = SmallVec::new();
+        let (size, fin) = self.collect_buffers_to_send(max_length, &mut buffers);
+
         self.data_send = self.data_send || size > 0;
-        unsafe {
-            let still_active = size > max_length && !fin;
-            let length = cmp::min(max_length, size);
+        let still_active = size > max_length && !fin;
+        let length = cmp::min(max_length, size);
+        let dest_slice = unsafe {
             let dest = picoquic_provide_stream_data_buffer(
                 ctx as _,
                 length,
@@ -350,39 +369,35 @@ impl Context {
                 panic!("Stream data buffer should never be NULL.");
             }
 
-            let dest_slice = slice::from_raw_parts_mut(dest, length);
+            slice::from_raw_parts_mut(dest, length)
+        };
 
-            let mut written = 0;
-            buffers
-                .into_iter()
-                .filter_map(|v| v.take())
-                .for_each(|mut buf| {
-                    if written < length {
-                        let end = cmp::min(written + buf.len(), length);
-                        let buf_end = end - written;
-                        dest_slice[written..end].copy_from_slice(&buf[0..buf_end]);
-                        buf.advance(end - written);
-                        written = end;
-                    }
+        self.stop_sending_or_fin_sent = fin;
 
-                    if !buf.is_empty() {
-                        if self.active_buffer.is_some() {
-                            panic!("Active buffer should never be set twice!");
-                        } else {
-                            self.active_buffer = Some(buf);
-                        }
-                    }
-                });
-        }
+        let mut written = 0;
+        buffers.into_iter().for_each(|mut buf| {
+            if written < length {
+                let end = cmp::min(written + buf.len(), length);
+                let buf_end = end - written;
+                dest_slice[written..end].copy_from_slice(&buf[0..buf_end]);
+                buf.advance(end - written);
+                written = end;
+            }
+
+            if !buf.is_empty() && self.active_buffer.is_none() {
+                self.active_buffer = Some(buf);
+            } else if !buf.is_empty() {
+                panic!("Active buffer should never be set twice!");
+            }
+        });
     }
 
-    fn close(&mut self) {
-        self.stop_sending = true;
-        self.close_send_data();
+    fn handle_send_data_dropped(&mut self) {
+        self.send_data.take();
 
         if !self.data_send && self.active_buffer.is_none() {
             self.reset();
-        } else {
+        } else if !self.stop_sending_or_fin_sent {
             unsafe {
                 // We will need to set the fin bit
                 picoquic_mark_active_stream(self.cnx.as_ptr(), self.id, 1);
@@ -401,11 +416,8 @@ impl Context {
                     self.reset();
                 }
                 None => {
-                    if self.finished && self.stop_sending {
-                        return Ok(Ready(()));
-                    } else {
-                        return Ok(NotReady);
-                    }
+                    self.recv_message_dropped();
+                    return Ok(Ready(()));
                 }
                 r => panic!("Stream context unknown `Message`: {:?}", r),
             }
@@ -421,7 +433,7 @@ impl Context {
                         picoquic_mark_active_stream(self.cnx.as_ptr(), self.id, 1);
                     }
                 }
-                Ready(None) => self.close(),
+                Ready(None) => self.handle_send_data_dropped(),
                 _ => {}
             }
         }
@@ -454,6 +466,12 @@ impl Future for Context {
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
         self.poll_send_data()?;
-        self.poll_control_msg()
+        self.poll_control_msg()?;
+
+        if self.stop_sending_or_fin_sent && self.fin_received_or_recv_msg_dropped {
+            Ok(Ready(()))
+        } else {
+            Ok(NotReady)
+        }
     }
 }
