@@ -137,6 +137,12 @@ pub struct ReceiverWithError<R> {
     error_state: ErrorState,
 }
 
+impl<R> fmt::Debug for ReceiverWithError<R> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "ReceiverWithError")
+    }
+}
+
 impl<R: Close> ReceiverWithError<R> {
     fn new(receiver: R, error_state: ErrorState) -> Self {
         Self {

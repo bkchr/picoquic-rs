@@ -166,6 +166,7 @@ mod ffi;
 mod stream;
 mod channel_with_error;
 mod verify_certificate;
+mod swappable_stream;
 
 pub use self::config::{Config, FileFormat, Role};
 pub use self::connection::{

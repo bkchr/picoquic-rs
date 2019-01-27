@@ -4,6 +4,7 @@ use crate::channel_with_error::{
 };
 use crate::error::*;
 use crate::ffi;
+use crate::swappable_stream::SwappableStream;
 use picoquic_sys::picoquic::{
     self, picoquic_call_back_event_t, picoquic_mark_active_stream,
     picoquic_provide_stream_data_buffer, picoquic_reset_stream, picoquic_stop_sending,
@@ -35,6 +36,11 @@ enum Message {
     Error(Error),
     /// Reset the `Stream`.
     Reset,
+    /// Swap the `send_data` receiver.
+    ///
+    /// This also carries the old `sender` as this one is not allowed to be dropped, before we set
+    /// the new receiver as swappable.
+    SwapSendData((ReceiverWithError<Bytes>, SenderWithError<Bytes>)),
 }
 
 /// A `Stream` can either be unidirectional or bidirectional.
@@ -142,6 +148,18 @@ impl Stream {
             .as_mut()
             .ok_or_else(|| ErrorKind::SendOnUnidirectional.into())
     }
+
+    /// Set the size of the send channel.
+    ///
+    pub fn set_send_channel_size(&mut self, size: usize) {
+        if let Some(old_sender) = self.send_data.take() {
+            let (sender, receiver) = channel_with_error(size);
+            self.send_data = Some(sender);
+            let _ = self
+                .control_msg
+                .unbounded_send(Message::SwapSendData((receiver, old_sender)));
+        }
+    }
 }
 
 impl FStream for Stream {
@@ -161,6 +179,7 @@ impl FStream for Stream {
                 self.stream_reset = true;
                 Ok(Ready(None))
             }
+            Some(Message::SwapSendData(_)) => panic!("SwapSendData received!"),
         }
     }
 }
@@ -185,7 +204,7 @@ impl Sink for Stream {
 
 pub(crate) struct Context {
     recv_msg: UnboundedSender<Message>,
-    send_data: Option<ReceiverWithError<Bytes>>,
+    send_data: Option<SwappableStream<ReceiverWithError<Bytes>>>,
     control_msg: UnboundedReceiver<Message>,
     id: Id,
     cnx: ffi::Connection,
@@ -224,7 +243,7 @@ impl Context {
         Context {
             recv_msg,
             control_msg,
-            send_data,
+            send_data: send_data.map(|s| s.into()),
             id,
             cnx,
             is_client_con,
@@ -417,6 +436,10 @@ impl Context {
                 Some(Message::Reset) => {
                     self.reset();
                 }
+                Some(Message::SwapSendData((new_receiver, _old_sender))) => {
+                    // `_old_sender` can be dropped after we set the receiver to swap to
+                    self.send_data.as_mut().map(|s| s.set_swap_to(new_receiver));
+                }
                 None => {
                     self.recv_message_dropped();
                     return Ok(Ready(()));
@@ -467,8 +490,8 @@ impl Future for Context {
     type Error = Error;
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        self.poll_send_data()?;
         self.poll_control_msg()?;
+        self.poll_send_data()?;
 
         if self.stop_sending_or_fin_sent && self.fin_received_or_recv_msg_dropped {
             Ok(Ready(()))

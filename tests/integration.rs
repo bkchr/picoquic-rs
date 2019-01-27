@@ -13,10 +13,8 @@ use std::{
     net::SocketAddr,
     sync::{
         atomic::{AtomicUsize, Ordering},
-        mpsc::channel,
         Arc,
     },
-    thread,
     time::{Duration, Instant},
 };
 
@@ -31,7 +29,7 @@ use openssl::{
 };
 
 use tokio::{
-    runtime::Runtime,
+    runtime::{Runtime, TaskExecutor},
     timer::{Delay, Interval},
 };
 
@@ -65,17 +63,24 @@ fn create_context_and_evt_loop(config: Config) -> (Context, Runtime) {
     (context, evt_loop)
 }
 
-fn start_server_thread_with_default_config<F, R>(create_future: F) -> SocketAddr
+fn start_server_thread_with_default_config<F, R>(
+    executor: TaskExecutor,
+    create_future: F,
+) -> SocketAddr
 where
     F: 'static + Send + FnOnce(Context) -> R,
     R: Future + Send + 'static,
     <R as Future>::Item: Send + 'static,
     <R as Future>::Error: fmt::Debug + Send + 'static,
 {
-    start_server_thread(|| get_test_config(), create_future)
+    start_server_thread(executor, || get_test_config(), create_future)
 }
 
-fn start_server_thread<F, R, C>(create_config: C, create_future: F) -> SocketAddr
+fn start_server_thread<F, R, C>(
+    executor: TaskExecutor,
+    create_config: C,
+    create_future: F,
+) -> SocketAddr
 where
     F: 'static + Send + FnOnce(Context) -> R,
     R: Future + Send + 'static,
@@ -83,25 +88,20 @@ where
     <R as Future>::Item: Send + 'static,
     C: 'static + Send + FnOnce() -> Config,
 {
-    let (send, recv) = channel();
+    let context = Context::new(&([0, 0, 0, 0], 0).into(), executor.clone(), create_config())
+        .expect("creates quic context");
 
-    thread::spawn(move || {
-        let (context, evt_loop) = create_context_and_evt_loop(create_config());
+    let local_addr = context.local_addr();
 
-        send.send(context.local_addr())
-            .expect("sends server socket addr");
+    executor.spawn(create_future(context).map_err(|e| panic!(e)).map(|_| ()));
 
-        evt_loop
-            .block_on_all(create_future(context))
-            .expect("event loop spins on server context");
-    });
-
-    recv.recv().expect("receives server socket addr")
+    local_addr
 }
 
 #[test]
 fn server_start() {
-    start_server_thread_with_default_config(|c| c.for_each(|_| Ok(())));
+    let runtime = Runtime::new().unwrap();
+    start_server_thread_with_default_config(runtime.executor(), |c| c.for_each(|_| Ok(())));
 }
 
 fn client_connects_creates_stream_and_sends_data<F, T, C>(
@@ -116,8 +116,9 @@ fn client_connects_creates_stream_and_sends_data<F, T, C>(
 {
     let send_data = "hello server";
     let (send, recv) = unbounded();
+    let (mut context, mut evt_loop) = create_context_and_evt_loop(client_config);
 
-    let addr = start_server_thread(create_server_config, move |c| {
+    let addr = start_server_thread(evt_loop.executor(), create_server_config, move |c| {
         c.for_each(move |c| {
             assert_eq!(c.get_type(), ConnectionType::Incoming);
             let send = send.clone();
@@ -132,8 +133,6 @@ fn client_connects_creates_stream_and_sends_data<F, T, C>(
             })
         })
     });
-
-    let (mut context, mut evt_loop) = create_context_and_evt_loop(client_config);
 
     let con = evt_loop
         .block_on(context.new_connection(([127, 0, 0, 1], addr.port()).into(), TEST_SERVER_NAME))
@@ -216,7 +215,9 @@ fn empty_stream_reset_and_no_more_send_on_drop() {
 fn empty_stream_reset_and_no_more_send_on_drop_inner() {
     let send_data = "hello server";
 
-    let addr = start_server_thread_with_default_config(move |c| {
+    let (mut context, mut evt_loop) = create_context_and_evt_loop_with_default_config();
+
+    let addr = start_server_thread_with_default_config(evt_loop.executor(), move |c| {
         c.for_each(move |c| {
             tokio::spawn(
                 c.for_each(move |s| s.into_future().map(|_| ()).map_err(|e| e.0))
@@ -226,8 +227,6 @@ fn empty_stream_reset_and_no_more_send_on_drop_inner() {
             Ok(())
         })
     });
-
-    let (mut context, mut evt_loop) = create_context_and_evt_loop_with_default_config();
 
     let mut con = evt_loop
         .block_on(context.new_connection(([127, 0, 0, 1], addr.port()).into(), TEST_SERVER_NAME))
@@ -266,7 +265,9 @@ fn none_empty_stream_set_fin_bit_on_drop() {
 fn none_empty_stream_set_fin_bit_on_drop_inner() {
     let send_data = "hello server";
 
-    let addr = start_server_thread_with_default_config(move |c| {
+    let (mut context, mut evt_loop) = create_context_and_evt_loop_with_default_config();
+
+    let addr = start_server_thread_with_default_config(evt_loop.executor(), move |c| {
         c.for_each(move |c| {
             tokio::spawn(
                 c.for_each(move |s| s.send(Bytes::from(send_data)).map(|_| ()))
@@ -276,8 +277,6 @@ fn none_empty_stream_set_fin_bit_on_drop_inner() {
             Ok(())
         })
     });
-
-    let (mut context, mut evt_loop) = create_context_and_evt_loop_with_default_config();
 
     let mut con = evt_loop
         .block_on(context.new_connection(([127, 0, 0, 1], addr.port()).into(), TEST_SERVER_NAME))
@@ -307,11 +306,14 @@ fn none_empty_stream_set_fin_bit_on_drop_inner() {
     assert!(!stream.is_reset());
 }
 
-fn start_server_that_sends_received_data_back<C>(create_config: C) -> SocketAddr
+fn start_server_that_sends_received_data_back<C>(
+    executor: TaskExecutor,
+    create_config: C,
+) -> SocketAddr
 where
     C: 'static + Send + FnOnce() -> Config,
 {
-    start_server_thread(create_config, move |c| {
+    start_server_thread(executor, create_config, move |c| {
         c.for_each(move |c| {
             tokio::spawn(
                 c.for_each(move |s| {
@@ -352,9 +354,9 @@ fn open_multiple_streams_sends_data_and_recvs() {
 }
 
 fn open_multiple_streams_sends_data_and_recvs_impl(data: Vec<Vec<Bytes>>) {
-    let addr = start_server_that_sends_received_data_back(|| get_test_config());
-
     let (mut context, mut evt_loop) = create_context_and_evt_loop_with_default_config();
+    let addr =
+        start_server_that_sends_received_data_back(evt_loop.executor(), || get_test_config());
 
     let mut con = evt_loop
         .block_on(context.new_connection(([127, 0, 0, 1], addr.port()).into(), TEST_SERVER_NAME))
@@ -416,29 +418,90 @@ fn open_multiple_streams_sends_1mb_data_and_recvs() {
     open_multiple_streams_sends_data_and_recvs_impl(data);
 }
 
+fn create_chunked_data(size: usize) -> Vec<Bytes> {
+    let mut send_data = vec![0; size];
+    rand::thread_rng().fill(&mut send_data[..]);
+    let chunks = rand::thread_rng().gen_range(100, 1000);
+    let chunk_size = (send_data.len() + chunks - 1) / chunks;
+    (0..chunks)
+        .fold((Vec::new(), 0), |(mut v, i), _| {
+            v.push(Bytes::from(
+                &send_data[i..cmp::min(i + chunk_size, send_data.len())],
+            ));
+            (v, i + chunk_size)
+        })
+        .0
+}
+
 #[test]
 fn open_multiple_streams_sends_1mb_data_in_chunks_and_recvs() {
     let stream_count = 4;
     let mut data = Vec::new();
 
     for _ in 0..stream_count {
-        let mut send_data = vec![0; 1024 * 1024];
-        rand::thread_rng().fill(&mut send_data[..]);
-        let chunks = rand::thread_rng().gen_range(100, 1000);
-        let chunk_size = (send_data.len() + chunks - 1) / chunks;
-        data.push(
-            (0..chunks)
-                .fold((Vec::new(), 0), |(mut v, i), _| {
-                    v.push(Bytes::from(
-                        &send_data[i..cmp::min(i + chunk_size, send_data.len())],
-                    ));
-                    (v, i + chunk_size)
-                })
-                .0,
-        );
+        data.push(create_chunked_data(1024 * 1024));
     }
 
     open_multiple_streams_sends_data_and_recvs_impl(data);
+}
+
+#[test]
+fn open_stream_send_data_decrease_send_channel_size_send_data_and_recv_result() {
+    let send_data = create_chunked_data(1024 * 1024);
+
+    let (mut context, mut evt_loop) = create_context_and_evt_loop_with_default_config();
+    let addr =
+        start_server_that_sends_received_data_back(evt_loop.executor(), || get_test_config());
+
+    let mut con = evt_loop
+        .block_on(context.new_connection(([127, 0, 0, 1], addr.port()).into(), TEST_SERVER_NAME))
+        .expect("creates connection");
+
+    let send_data_inner = send_data.clone();
+    let mut stream = evt_loop
+        .block_on(con.new_bidirectional_stream().and_then(move |stream| {
+            stream
+                .send_all(stream::iter_ok::<_, Error>(send_data_inner.into_iter()))
+                .map(|v| v.0)
+        }))
+        .expect("creates stream and sends data");
+
+    stream.set_send_channel_size(1);
+
+    let stream = evt_loop
+        .block_on(
+            stream
+                .send_all(stream::iter_ok::<_, Error>(send_data.clone().into_iter()))
+                .map(|v| v.0),
+        )
+        .expect("sends data with smaller send channel size");
+
+    let mut all_data = send_data.into_iter().fold(Vec::new(), |mut v, d| {
+        v.extend(&d);
+        v
+    });
+    // we send the data twice
+    all_data.extend(all_data.clone().into_iter());
+
+    let all_len = all_data.len();
+    let res = evt_loop
+        .block_on(
+            stream
+                .map_err(|_| Vec::new())
+                .fold(Vec::new(), move |mut v, b| {
+                    v.extend(&b);
+
+                    if v.len() < all_len {
+                        future::ok(v)
+                    } else {
+                        future::err(v)
+                    }
+                }),
+        )
+        .err()
+        .unwrap();
+
+    assert_eq!(&all_data, &res);
 }
 
 fn open_stream_to_server_and_server_creates_new_stream_to_answer<F>(create_stream: F)
@@ -448,8 +511,10 @@ where
     let create_stream = Arc::new(Box::new(create_stream));
     let send_data = "hello server";
 
+    let (mut context, mut evt_loop) = create_context_and_evt_loop_with_default_config();
+
     let create_stream2 = create_stream.clone();
-    let addr = start_server_thread_with_default_config(move |c| {
+    let addr = start_server_thread_with_default_config(evt_loop.executor(), move |c| {
         let create_stream = create_stream2;
         c.for_each(move |c| {
             let create_stream = create_stream.clone();
@@ -465,8 +530,6 @@ where
             })
         })
     });
-
-    let (mut context, mut evt_loop) = create_context_and_evt_loop_with_default_config();
 
     let con = evt_loop
         .block_on(context.new_connection(([127, 0, 0, 1], addr.port()).into(), TEST_SERVER_NAME))
@@ -561,7 +624,7 @@ impl VerifyCertificate for VerifyCertificateImpl {
 fn verify_certificate_callback_is_called_and_certificate_is_verified(
     client_cert: String,
     client_key: String,
-) {
+) -> Result<(), Error> {
     let send_data = "hello server";
     let call_counter = VerifyCertificateImpl::new();
 
@@ -570,8 +633,10 @@ fn verify_certificate_callback_is_called_and_certificate_is_verified(
     client_config.set_certificate_chain_filename(client_cert);
     client_config.set_private_key_filename(client_key);
 
+    let (mut context, mut evt_loop) = create_context_and_evt_loop(client_config);
+
     let server_call_counter = call_counter.clone();
-    let addr = start_server_that_sends_received_data_back(move || {
+    let addr = start_server_that_sends_received_data_back(evt_loop.executor(), move || {
         let mut server_config = get_test_config();
         server_config.set_verify_certificate_handler(server_call_counter);
         server_config.enable_client_authentication();
@@ -579,25 +644,17 @@ fn verify_certificate_callback_is_called_and_certificate_is_verified(
         server_config
     });
 
-    let (mut context, mut evt_loop) = create_context_and_evt_loop(client_config);
-
     let mut con = evt_loop
-        .block_on(context.new_connection(([127, 0, 0, 1], addr.port()).into(), TEST_SERVER_NAME))
-        .expect("creates connection");
+        .block_on(context.new_connection(([127, 0, 0, 1], addr.port()).into(), TEST_SERVER_NAME))?;
 
-    let stream = evt_loop
-        .block_on(con.new_bidirectional_stream())
-        .expect("creates stream");
-    let stream = evt_loop
-        .block_on(stream.send(Bytes::from(send_data)))
-        .unwrap();
+    let stream = evt_loop.block_on(con.new_bidirectional_stream())?;
+    let stream = evt_loop.block_on(stream.send(Bytes::from(send_data)))?;
 
     assert_eq!(
         send_data,
         &String::from_utf8(
             evt_loop
-                .block_on(stream.into_future().map(|(m, _)| m).map_err(|(e, _)| e))
-                .unwrap()
+                .block_on(stream.into_future().map(|(m, _)| m).map_err(|(e, _)| e))?
                 .unwrap()
                 .to_vec()
         )
@@ -605,23 +662,32 @@ fn verify_certificate_callback_is_called_and_certificate_is_verified(
     );
 
     assert_eq!(call_counter.get(), 2);
+    Ok(())
 }
 
 #[test]
 fn verify_certificate_callback_is_called_and_certificate_verification_succeeds() {
-    verify_certificate_callback_is_called_and_certificate_is_verified(
-        format!("{}device.test.crt", get_test_certs_path()),
-        format!("{}device.key", get_test_certs_path()),
-    )
+    assert!(
+        verify_certificate_callback_is_called_and_certificate_is_verified(
+            format!("{}device.test.crt", get_test_certs_path()),
+            format!("{}device.key", get_test_certs_path()),
+        )
+        .is_ok()
+    );
 }
 
 #[test]
-#[should_panic(expected = "An error occurred in the TLS handshake.")]
 fn verify_certificate_callback_is_called_and_certificate_verification_fails() {
-    verify_certificate_callback_is_called_and_certificate_is_verified(
-        format!("{}device.invalid.crt", get_test_certs_path()),
-        format!("{}device.key", get_test_certs_path()),
-    )
+    assert_eq!(
+        verify_certificate_callback_is_called_and_certificate_is_verified(
+            format!("{}device.invalid.crt", get_test_certs_path()),
+            format!("{}device.key", get_test_certs_path()),
+        )
+        .err()
+        .unwrap()
+        .kind(),
+        &ErrorKind::TLSHandshakeError
+    );
 }
 
 #[test]
@@ -647,9 +713,10 @@ fn stream_stops_on_context_drop() {
 fn stream_stops_on_context_drop_inner() {
     let send_data = "hello server";
 
-    let addr = start_server_that_sends_received_data_back(|| get_test_config());
-
     let (mut context, mut evt_loop) = create_context_and_evt_loop_with_default_config();
+
+    let addr =
+        start_server_that_sends_received_data_back(evt_loop.executor(), || get_test_config());
 
     let mut con = evt_loop
         .block_on(context.new_connection(([127, 0, 0, 1], addr.port()).into(), TEST_SERVER_NAME))

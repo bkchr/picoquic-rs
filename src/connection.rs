@@ -21,6 +21,7 @@ use std::{
     mem,
     net::SocketAddr,
     os::raw::c_void,
+    ptr,
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -461,6 +462,14 @@ impl Future for Context {
         }
 
         Ok(NotReady)
+    }
+}
+
+impl Drop for Context {
+    fn drop(&mut self) {
+        unsafe {
+            picoquic_set_callback(self.cnx.as_ptr(), None, ptr::null_mut());
+        }
     }
 }
 

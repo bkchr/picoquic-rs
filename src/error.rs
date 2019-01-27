@@ -1,4 +1,4 @@
-use std::{ffi, fmt, io};
+use std::{ffi, fmt, io, mem};
 
 pub use failure::ResultExt;
 use failure::{self, Backtrace, Context, Fail};
@@ -118,6 +118,12 @@ pub enum ErrorKind {
     Spawn(SpawnError),
     #[fail(display = "Tried to send data on an unidirectional receiving side Stream.")]
     SendOnUnidirectional,
+}
+
+impl PartialEq for ErrorKind {
+    fn eq(&self, other: &Self) -> bool {
+        mem::discriminant(self) == mem::discriminant(other)
+    }
 }
 
 //FIXME: Remove when upstream provides a better bail macro
