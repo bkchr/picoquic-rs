@@ -162,7 +162,7 @@ impl Connection {
 
         // Now we need to call the callback once manually to process the received data
         unsafe {
-            stream_callback(cnx.as_ptr(), stream_id, data, len, event, c_ctx);
+            connection_callback(cnx.as_ptr(), stream_id, data, len, event, c_ctx);
         }
 
         (con, ctx)
@@ -314,7 +314,7 @@ impl Context {
         // `recv_data_callback`
         let c_ctx = unsafe {
             let c_ctx = Arc::into_raw(ctx.clone()) as *mut c_void;
-            picoquic_set_callback(cnx.as_ptr(), Some(stream_callback), c_ctx);
+            picoquic_set_callback(cnx.as_ptr(), Some(connection_callback), c_ctx);
             c_ctx
         };
 
@@ -324,7 +324,7 @@ impl Context {
         (ctx, c_ctx, new_stream_handle)
     }
 
-    fn stream_callback(
+    fn handle_stream_callback(
         &mut self,
         id: stream::Id,
         ptr: *mut u8,
@@ -353,6 +353,23 @@ impl Context {
 
         if let Some(stream) = new_stream_handle {
             let _ = self.send_msg.unbounded_send(Message::NewStream(stream));
+        }
+    }
+
+    fn handle_callback(
+        &mut self,
+        id: stream::Id,
+        ptr: *mut u8,
+        length: usize,
+        event: picoquic_call_back_event_t,
+    ) {
+        if event == picoquic::picoquic_call_back_event_t_picoquic_callback_almost_ready {
+            // maybe move to `callback_ready`
+            if self.wait_for_ready_state.is_some() {
+                self.process_wait_for_ready_state();
+            }
+        } else if id != 0 {
+            self.handle_stream_callback(id, ptr, length, event);
         }
     }
 
@@ -447,10 +464,6 @@ impl Future for Context {
             return Ok(Ready(()));
         }
 
-        if self.wait_for_ready_state.is_some() && self.cnx.is_client_ready_start() {
-            self.process_wait_for_ready_state();
-        }
-
         self.streams
             .retain(|_, s| s.poll().map(|r| r.is_not_ready()).unwrap_or(false));
 
@@ -477,7 +490,7 @@ fn get_context(ctx: *mut c_void) -> Arc<Mutex<Context>> {
     unsafe { Arc::from_raw(ctx as *mut Mutex<Context>) }
 }
 
-unsafe extern "C" fn stream_callback(
+unsafe extern "C" fn connection_callback(
     _: *mut picoquic_cnx_t,
     stream_id: stream::Id,
     bytes: *mut u8,
@@ -498,7 +511,7 @@ unsafe extern "C" fn stream_callback(
     } else {
         ctx.lock()
             .unwrap()
-            .stream_callback(stream_id, bytes, length, event);
+            .handle_callback(stream_id, bytes, length, event);
 
         // the context must not be dereferenced!
         mem::forget(ctx);

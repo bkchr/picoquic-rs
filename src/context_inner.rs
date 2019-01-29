@@ -5,7 +5,7 @@ use crate::ffi::{self, QuicCtx};
 use crate::stream;
 
 use picoquic_sys::picoquic::{
-    picoquic_call_back_event_t, picoquic_cnx_t, PICOQUIC_MAX_PACKET_SIZE,
+    self, picoquic_call_back_event_t, picoquic_cnx_t, PICOQUIC_MAX_PACKET_SIZE,
 };
 
 use std::{
@@ -357,6 +357,10 @@ unsafe extern "C" fn new_connection_callback(
 
     // early out, if the connection is already going to be closed, we don't need to handle it.
     if ffi::Connection::from(cnx).is_going_to_close() {
+        return 0;
+    }
+
+    if event == picoquic::picoquic_call_back_event_t_picoquic_callback_almost_ready {
         return 0;
     }
 

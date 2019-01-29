@@ -303,7 +303,10 @@ pub fn socket_addr_from_sockaddr(sock_addr: *mut picoquic::sockaddr, sock_len: i
     addr.as_inet()
         .map(|v| v.into())
         .or_else(|| addr.as_inet6().map(|v| v.into()))
-        .expect("neither ipv4 nor ipv6?")
+        .expect(&format!(
+            "Neither ipv4 nor ipv6? {:?} {}",
+            sock_addr, sock_len
+        ))
 }
 
 pub fn socket_addr_from_sockaddr_storage(
