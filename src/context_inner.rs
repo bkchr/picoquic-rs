@@ -250,6 +250,11 @@ impl Future for ContextInner {
         let max_loops_without_sleep = 50;
 
         loop {
+            // This checks all connection contexts if there is data that needs to be send.
+            // We do this before acquiring the current time, to make sure that we send the data
+            // in this loop (if permitted).
+            assert!(self.context.lock().unwrap().poll().is_ok());
+
             let current_time = self.quic.get_current_time();
 
             if self.is_context_dropped() {
@@ -260,9 +265,6 @@ impl Future for ContextInner {
             self.check_for_new_connection_request(current_time);
 
             self.check_for_incoming_data(current_time);
-
-            // This checks all connection contexts if there is data that needs to be send
-            assert!(self.context.lock().unwrap().poll().is_ok());
 
             let _ = self.send_stateless_packets();
 
