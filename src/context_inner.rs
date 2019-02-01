@@ -362,10 +362,6 @@ unsafe extern "C" fn new_connection_callback(
         return 0;
     }
 
-    if event == picoquic::picoquic_call_back_event_t_picoquic_callback_almost_ready {
-        return 0;
-    }
-
     let ctx = get_context(ctx);
     {
         let mut ctx_locked = ctx.lock().unwrap();
