@@ -9,7 +9,8 @@ use tokio_executor::Executor;
 
 use futures::{
     sync::{mpsc::UnboundedReceiver, oneshot},
-    Poll, Stream,
+    Async::{NotReady, Ready},
+    Future, Poll, Stream,
 };
 
 /// The `Picoquic` context. It setups and controls the `UdpSocket`. Every incoming `Connection`
@@ -19,7 +20,7 @@ pub struct Context {
     local_addr: SocketAddr,
     new_connection_handle: NewConnectionHandle,
     /// The handle is used to inform the `ContextInner` about `Context` being dropped.
-    close_handle: Option<oneshot::Sender<()>>,
+    close_handle: oneshot::Receiver<()>,
 }
 
 impl Context {
@@ -46,7 +47,7 @@ impl Context {
             recv_con,
             local_addr,
             new_connection_handle,
-            close_handle: Some(close_handle),
+            close_handle: close_handle,
         })
     }
 
@@ -73,17 +74,16 @@ impl Context {
     }
 }
 
-impl Drop for Context {
-    fn drop(&mut self) {
-        self.close_handle.take().map(|h| h.send(()));
-    }
-}
-
 impl Stream for Context {
     type Item = Connection;
     type Error = Error;
 
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
+        match self.close_handle.poll() {
+            Ok(Ready(())) | Err(_) => return Ok(Ready(None)),
+            Ok(NotReady) => {}
+        };
+
         self.recv_con.poll().map_err(|_| ErrorKind::Unknown.into())
     }
 }

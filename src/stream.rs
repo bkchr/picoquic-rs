@@ -500,3 +500,10 @@ impl Future for Context {
         }
     }
 }
+
+impl Drop for Context {
+    fn drop(&mut self) {
+        let _ = self.recv_msg.unbounded_send(Message::Close);
+        self.close_send_data();
+    }
+}

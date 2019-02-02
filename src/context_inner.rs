@@ -5,7 +5,7 @@ use crate::ffi::{self, QuicCtx};
 use crate::stream;
 
 use picoquic_sys::picoquic::{
-    self, picoquic_call_back_event_t, picoquic_cnx_t, PICOQUIC_MAX_PACKET_SIZE,
+    picoquic_call_back_event_t, picoquic_cnx_t, PICOQUIC_MAX_PACKET_SIZE,
 };
 
 use std::{
@@ -49,7 +49,7 @@ pub struct ContextInner {
     recv_connect: UnboundedReceiver<NewConnectionMsg>,
     /// The keep alive interval for client connections
     client_keep_alive_interval: Option<Duration>,
-    close_handle_recv: oneshot::Receiver<()>,
+    close_handle: Option<oneshot::Sender<()>>,
     stream_send_channel_default_size: usize,
 }
 
@@ -62,7 +62,7 @@ impl ContextInner {
             ContextInner,
             UnboundedReceiver<Connection>,
             NewConnectionHandle,
-            oneshot::Sender<()>,
+            oneshot::Receiver<()>,
         ),
         Error,
     > {
@@ -84,7 +84,7 @@ impl ContextInner {
 
         let (send_connect, recv_connect) = unbounded();
         let connect = NewConnectionHandle { send: send_connect };
-        let (close_handle_send, close_handle_recv) = oneshot::channel();
+        let (close_handle_send, close_handle) = oneshot::channel();
 
         Ok((
             ContextInner {
@@ -95,13 +95,13 @@ impl ContextInner {
                 timer: Delay::new(Instant::now() + Duration::from_secs(10)),
                 recv_connect,
                 client_keep_alive_interval,
-                close_handle_recv,
+                close_handle: Some(close_handle_send),
                 not_send_length: None,
                 stream_send_channel_default_size,
             },
             recv,
             connect,
-            close_handle_send,
+            close_handle,
         ))
     }
 
@@ -230,10 +230,16 @@ impl ContextInner {
     }
 
     fn is_context_dropped(&mut self) -> bool {
-        match self.close_handle_recv.poll() {
+        self.close_handle.as_mut().map(|h| match h.poll_cancel() {
             Ok(Ready(_)) | Err(_) => true,
-            _ => false,
-        }
+            Ok(NotReady) => false,
+        }).unwrap_or(true)
+    }
+}
+
+impl Drop for ContextInner {
+    fn drop(&mut self) {
+        self.close_handle.take().map(|h| h.send(()));
     }
 }
 
