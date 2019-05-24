@@ -18,7 +18,7 @@ use futures::{
     Future, Poll, Sink, StartSend, Stream as FStream,
 };
 
-use std::{cmp, net::SocketAddr, slice};
+use std::{cmp, net::SocketAddr, ptr, slice};
 
 use smallvec::SmallVec;
 
@@ -421,7 +421,7 @@ impl Context {
         } else if !self.stop_sending_or_fin_sent {
             unsafe {
                 // We will need to set the fin bit
-                picoquic_mark_active_stream(self.cnx.as_ptr(), self.id, 1);
+                picoquic_mark_active_stream(self.cnx.as_ptr(), self.id, 1, ptr::null_mut());
             }
         }
     }
@@ -455,7 +455,7 @@ impl Context {
                 Ready(Some(buf)) => {
                     self.active_buffer = Some(buf);
                     unsafe {
-                        picoquic_mark_active_stream(self.cnx.as_ptr(), self.id, 1);
+                        picoquic_mark_active_stream(self.cnx.as_ptr(), self.id, 1, ptr::null_mut());
                     }
                 }
                 Ready(None) => self.handle_send_data_dropped(),

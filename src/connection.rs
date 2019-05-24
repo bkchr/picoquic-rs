@@ -162,7 +162,15 @@ impl Connection {
 
         // Now we need to call the callback once manually to process the received data
         unsafe {
-            connection_callback(cnx.as_ptr(), stream_id, data, len, event, c_ctx);
+            connection_callback(
+                cnx.as_ptr(),
+                stream_id,
+                data,
+                len,
+                event,
+                c_ctx,
+                ptr::null_mut(),
+            );
         }
 
         (con, ctx)
@@ -497,6 +505,7 @@ unsafe extern "C" fn connection_callback(
     length: usize,
     event: picoquic_call_back_event_t,
     ctx: *mut c_void,
+    _: *mut c_void,
 ) -> i32 {
     assert!(!ctx.is_null());
     let ctx = get_context(ctx);

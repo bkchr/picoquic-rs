@@ -230,10 +230,13 @@ impl ContextInner {
     }
 
     fn is_context_dropped(&mut self) -> bool {
-        self.close_handle.as_mut().map(|h| match h.poll_cancel() {
-            Ok(Ready(_)) | Err(_) => true,
-            Ok(NotReady) => false,
-        }).unwrap_or(true)
+        self.close_handle
+            .as_mut()
+            .map(|h| match h.poll_cancel() {
+                Ok(Ready(_)) | Err(_) => true,
+                Ok(NotReady) => false,
+            })
+            .unwrap_or(true)
     }
 }
 
@@ -360,6 +363,7 @@ unsafe extern "C" fn new_connection_callback(
     length: usize,
     event: picoquic_call_back_event_t,
     ctx: *mut c_void,
+    _: *mut c_void,
 ) -> i32 {
     assert!(!ctx.is_null());
 
