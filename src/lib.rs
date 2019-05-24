@@ -158,15 +158,15 @@ extern crate log;
 
 #[macro_use]
 mod error;
+mod channel_with_error;
 mod config;
 mod connection;
 mod context;
 mod context_inner;
 mod ffi;
 mod stream;
-mod channel_with_error;
-mod verify_certificate;
 mod swappable_stream;
+mod verify_certificate;
 
 pub use self::config::{Config, FileFormat, Role};
 pub use self::connection::{

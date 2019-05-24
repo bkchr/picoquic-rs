@@ -73,7 +73,7 @@ where
     <R as Future>::Item: Send + 'static,
     <R as Future>::Error: fmt::Debug + Send + 'static,
 {
-    start_server_thread(executor, || get_test_config(), create_future)
+    start_server_thread(executor, get_test_config, create_future)
 }
 
 fn start_server_thread<F, R, C>(
@@ -193,7 +193,7 @@ fn client_connects_creates_bidirectional_stream_and_sends_data() {
 fn client_connects_creates_unidirectional_stream_and_sends_data() {
     client_connects_creates_stream_and_sends_data(
         get_test_config(),
-        || get_test_config(),
+        get_test_config,
         |mut c| {
             let stream = c.new_unidirectional_stream();
             (stream, c)
@@ -355,8 +355,7 @@ fn open_multiple_streams_sends_data_and_recvs() {
 
 fn open_multiple_streams_sends_data_and_recvs_impl(data: Vec<Vec<Bytes>>) {
     let (mut context, mut evt_loop) = create_context_and_evt_loop_with_default_config();
-    let addr =
-        start_server_that_sends_received_data_back(evt_loop.executor(), || get_test_config());
+    let addr = start_server_that_sends_received_data_back(evt_loop.executor(), get_test_config);
 
     let mut con = evt_loop
         .block_on(context.new_connection(([127, 0, 0, 1], addr.port()).into(), TEST_SERVER_NAME))
@@ -450,8 +449,7 @@ fn open_stream_send_data_decrease_send_channel_size_send_data_and_recv_result() 
     let send_data = create_chunked_data(1024 * 1024);
 
     let (mut context, mut evt_loop) = create_context_and_evt_loop_with_default_config();
-    let addr =
-        start_server_that_sends_received_data_back(evt_loop.executor(), || get_test_config());
+    let addr = start_server_that_sends_received_data_back(evt_loop.executor(), get_test_config);
 
     let mut con = evt_loop
         .block_on(context.new_connection(([127, 0, 0, 1], addr.port()).into(), TEST_SERVER_NAME))
@@ -715,8 +713,7 @@ fn stream_stops_on_context_drop_inner() {
 
     let (mut context, mut evt_loop) = create_context_and_evt_loop_with_default_config();
 
-    let addr =
-        start_server_that_sends_received_data_back(evt_loop.executor(), || get_test_config());
+    let addr = start_server_that_sends_received_data_back(evt_loop.executor(), get_test_config);
 
     let mut con = evt_loop
         .block_on(context.new_connection(([127, 0, 0, 1], addr.port()).into(), TEST_SERVER_NAME))
@@ -743,7 +740,6 @@ fn stream_stops_on_context_drop_inner() {
                         .map_err(|_| ErrorKind::Unknown.into())
                         .map(move |_| {
                             let _ = context;
-                            ()
                         }),
                 ),
         )

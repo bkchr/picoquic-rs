@@ -1,6 +1,9 @@
 use futures::{Async::Ready, Poll, Stream};
 
-use std::{fmt, ops::{Deref, DerefMut}};
+use std::{
+    fmt,
+    ops::{Deref, DerefMut},
+};
 
 pub struct SwappableStream<S> {
     active_stream: S,

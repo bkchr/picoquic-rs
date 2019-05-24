@@ -303,12 +303,9 @@ pub fn socket_addr_from_sockaddr(sock_addr: *mut picoquic::sockaddr, sock_len: i
         unsafe { SockAddr::from_raw_parts(sock_addr as *const libc::sockaddr, sock_len as u32) };
 
     addr.as_inet()
-        .map(|v| v.into())
-        .or_else(|| addr.as_inet6().map(|v| v.into()))
-        .expect(&format!(
-            "Neither ipv4 nor ipv6? {:?} {}",
-            sock_addr, sock_len
-        ))
+        .map(Into::into)
+        .or_else(|| addr.as_inet6().map(Into::into))
+        .unwrap_or_else(|| panic!("Neither ipv4 nor ipv6? {:?} {}", sock_addr, sock_len))
 }
 
 pub fn socket_addr_from_sockaddr_storage(
@@ -351,7 +348,7 @@ mod tests {
             Duration::new(1, 5000),
             Duration::from_micro_seconds(1_000_005)
         );
-        assert_eq!(Duration::new(0, 500000), Duration::from_micro_seconds(500));
+        assert_eq!(Duration::new(0, 500_000), Duration::from_micro_seconds(500));
     }
 
     #[test]
@@ -359,6 +356,6 @@ mod tests {
         assert_eq!(Duration::from_secs(1).as_micro_seconds(), 1_000_000);
         assert_eq!(Duration::new(0, 1000).as_micro_seconds(), 1);
         assert_eq!(Duration::new(1, 5000).as_micro_seconds(), 1_000_005);
-        assert_eq!(Duration::new(0, 500000).as_micro_seconds(), 500);
+        assert_eq!(Duration::new(0, 500_000).as_micro_seconds(), 500);
     }
 }

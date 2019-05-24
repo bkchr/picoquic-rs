@@ -3,7 +3,7 @@ use crate::{ConnectionId, ConnectionType};
 pub use openssl::{
     error::ErrorStack,
     stack::StackRef,
-    x509::{store::X509StoreRef, X509Ref, X509StoreContext, X509},
+    x509::{store::X509StoreRef, X509Ref, X509StoreContext, X509StoreContextRef, X509},
     *,
 };
 
@@ -33,5 +33,5 @@ pub fn default_verify_certificate(
     store: &X509StoreRef,
 ) -> Result<bool, ErrorStack> {
     let mut context = X509StoreContext::new()?;
-    context.init(store, cert, chain, |c| c.verify_cert())
+    context.init(store, cert, chain, X509StoreContextRef::verify_cert)
 }
