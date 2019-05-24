@@ -127,7 +127,7 @@ impl Connection {
             if send_len > 0 {
                 Ok(Some((
                     send_len,
-                    socket_addr_from_sockaddr_storage(&addr, addr_len).into(),
+                    socket_addr_from_sockaddr_storage(&addr, addr_len),
                 )))
             } else {
                 Ok(None)

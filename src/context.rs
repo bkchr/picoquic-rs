@@ -47,7 +47,7 @@ impl Context {
             recv_con,
             local_addr,
             new_connection_handle,
-            close_handle: close_handle,
+            close_handle,
         })
     }
 

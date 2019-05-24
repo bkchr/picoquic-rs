@@ -177,7 +177,7 @@ impl Connection {
     }
 
     /// Creates a new `Connection` to the given `peer_addr` server.
-    pub(crate) fn new(
+    pub(crate) fn create(
         quic: &QuicCtx,
         peer_addr: SocketAddr,
         local_addr: SocketAddr,

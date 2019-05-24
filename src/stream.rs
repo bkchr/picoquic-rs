@@ -231,9 +231,10 @@ impl Context {
         is_client_con: bool,
     ) -> Context {
         let _ = control_msg.poll();
-        send_data.as_mut().map(|s| {
+
+        if let Some(s) = send_data.as_mut() {
             let _ = s.poll();
-        });
+        }
 
         let fin_received_or_recv_msg_dropped =
             is_unidirectional(id) && is_unidirectional_send_allowed(id, is_client_con);
@@ -255,7 +256,9 @@ impl Context {
     }
 
     fn close_send_data(&mut self) {
-        self.send_data.take().map(|mut s| s.close());
+        if let Some(mut s) = self.send_data.take() {
+            s.close()
+        }
     }
 
     fn reset(&mut self) {
@@ -319,7 +322,9 @@ impl Context {
     /// Handle a connection error.
     pub fn handle_connection_error(&mut self, err: impl ErrorFn<Output = Error>) {
         self.recv_message(Message::Error(err()));
-        self.send_data.as_mut().map(|s| s.propagate_error(err));
+        if let Some(s) = self.send_data.as_mut() {
+            s.propagate_error(err)
+        }
     }
 
     /// Handle connection close.
@@ -438,7 +443,9 @@ impl Context {
                 }
                 Some(Message::SwapSendData((new_receiver, _old_sender))) => {
                     // `_old_sender` can be dropped after we set the receiver to swap to
-                    self.send_data.as_mut().map(|s| s.set_swap_to(new_receiver));
+                    if let Some(s) = self.send_data.as_mut() {
+                        s.set_swap_to(new_receiver)
+                    }
                 }
                 None => {
                     self.recv_message_dropped();

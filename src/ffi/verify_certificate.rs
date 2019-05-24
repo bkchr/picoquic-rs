@@ -114,7 +114,7 @@ unsafe extern "C" fn verify_certificate_callback(
     let mut handler = get_handler(ctx);
 
     let result = verify_certificate_callback_impl(
-        &mut handler,
+        &mut **handler,
         cnx,
         certs,
         num_certs,
@@ -128,7 +128,7 @@ unsafe extern "C" fn verify_certificate_callback(
 }
 
 fn verify_certificate_callback_impl(
-    handler: &mut Box<Box<dyn VerifyCertificate>>,
+    handler: &mut VerifyCertificate,
     cnx: *mut picoquic_cnx_t,
     certs: *mut ptls_iovec_t,
     num_certs: usize,

@@ -115,7 +115,7 @@ impl ContextInner {
             match self.recv_connect.poll() {
                 Err(_) | Ok(NotReady) | Ok(Ready(None)) => break,
                 Ok(Ready(Some((addr, server_name, sender)))) => {
-                    let ctx = match Connection::new(
+                    let ctx = match Connection::create(
                         &self.quic,
                         addr,
                         self.local_addr(),
@@ -229,7 +229,7 @@ impl ContextInner {
         self.timer.poll().map(|v| v.is_not_ready()).unwrap_or(false)
     }
 
-    fn is_context_dropped(&mut self) -> bool {
+    fn context_dropped(&mut self) -> bool {
         self.close_handle
             .as_mut()
             .map(|h| match h.poll_cancel() {
@@ -266,7 +266,7 @@ impl Future for ContextInner {
 
             let current_time = self.quic.get_current_time();
 
-            if self.is_context_dropped() {
+            if self.context_dropped() {
                 trace!("`Context` dropped, will end `ContextInner`.");
                 return Ok(Ready(()));
             }
