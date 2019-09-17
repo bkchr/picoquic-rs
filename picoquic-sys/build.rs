@@ -32,7 +32,10 @@ fn main() {
         .file("src/picotls/lib/pembase64.c")
         .file("src/picotls/lib/openssl.c")
         .file("src/picotls/lib/cifra.c")
-        .file("src/picotls/deps/cifra/src/aes.c")
+        .file("src/picotls/lib/cifra/aes128.c")
+        .file("src/picotls/lib/cifra/chacha20.c")
+        .file("src/picotls/lib/cifra/random.c")
+        .file("src/picotls/lib/cifra/x25519.c")
         .file("src/picotls/deps/cifra/src/curve25519.c")
         .file("src/picotls/deps/cifra/src/chacha20.c")
         .file("src/picotls/deps/cifra/src/sha256.c")
@@ -42,6 +45,7 @@ fn main() {
         .file("src/picotls/deps/cifra/src/blockwise.c")
         .include("src/picotls/deps/cifra/src/")
         .include("src/picotls/deps/cifra/src/ext/")
+        .include("src/picotls/lib/cifra/")
         .include("src/picotls/include/");
 
     if let Ok(ref openssl_include) = openssl_include {
@@ -81,7 +85,9 @@ fn main() {
         picoquic.flag("-std=c99");
     }
 
-    if !debug {
+    if debug {
+        picoquic.define("_DEBUG", None);
+    } else {
         picoquic.define("DISABLE_DEBUG_PRINTF", None);
     }
 

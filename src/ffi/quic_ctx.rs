@@ -157,7 +157,7 @@ impl QuicCtx {
             picoquic_incoming_packet(
                 *self.quic,
                 buf.as_mut_ptr(),
-                buf.len() as u32,
+                buf.len() as usize,
                 addr_from.as_ptr() as *mut picoquic::sockaddr,
                 addr_to.as_ptr() as *mut picoquic::sockaddr,
                 // as long as we only support one udp socket, we don't need to change this index

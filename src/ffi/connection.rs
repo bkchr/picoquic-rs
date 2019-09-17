@@ -52,7 +52,7 @@ impl Connection {
                 current_time,
                 0,
                 server_name.as_c_str().as_ptr(),
-                ptr::null_mut(),
+                CString::new("picoquic").unwrap().as_ptr(),
                 None,
                 ptr::null_mut(),
             )
