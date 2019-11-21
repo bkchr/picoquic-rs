@@ -30,7 +30,7 @@ socket2 = "0.3"
 tokio-executor = "0.1"
 tokio-timer = "0.2"
 tokio-udp = "0.1"
-smallvec = "0.6"
+smallvec = "1.0"
 
 [dependencies.picoquic-sys]
 path = "./picoquic-sys/"

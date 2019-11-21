@@ -14,10 +14,10 @@ Use the `picoquic` crate.
 edition = "2018"
 
 [dependencies]
-openssl-sys = "0.9.49"
+openssl-sys = "0.9.52"
 libc = "0.2"
 
 [build-dependencies]
-cc = { version = "1.0.45", features = ["parallel"] }
+cc = { version = "1.0.47", features = ["parallel"] }
 glob = "0.3"
-bindgen = "0.51.0"
+bindgen = "0.52.0"
