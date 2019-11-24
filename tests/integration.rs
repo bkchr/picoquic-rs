@@ -726,7 +726,7 @@ fn stream_stops_on_context_drop_inner() {
         )
         .expect("creates stream");
 
-    evt_loop
+    let _ = evt_loop
         .block_on(
             stream
                 .send_all(

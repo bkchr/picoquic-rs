@@ -128,7 +128,7 @@ unsafe extern "C" fn verify_certificate_callback(
 }
 
 fn verify_certificate_callback_impl(
-    handler: &mut VerifyCertificate,
+    handler: &mut dyn VerifyCertificate,
     cnx: *mut picoquic_cnx_t,
     certs: *mut ptls_iovec_t,
     num_certs: usize,

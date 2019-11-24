@@ -186,7 +186,7 @@ impl Connection {
         keep_alive_interval: Option<Duration>,
         created_sender: oneshot::Sender<Result<Connection, Error>>,
         stream_send_channel_default_size: usize,
-    ) -> Result<(Arc<Mutex<Context>>), Error> {
+    ) -> Result<Arc<Mutex<Context>>, Error> {
         let cnx = ffi::Connection::new(quic, peer_addr, current_time, server_name)?;
 
         let (builder, ctx, _) = Self::create_builder(

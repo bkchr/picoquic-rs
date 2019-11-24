@@ -106,7 +106,8 @@ impl Connection {
     ) -> Result<Option<(usize, SocketAddr)>, Error> {
         let mut send_len = 0;
         let mut addr_len = 0;
-        let mut addr: picoquic::sockaddr_storage = unsafe { mem::uninitialized() };
+        let mut addr: picoquic::sockaddr_storage =
+            unsafe { mem::MaybeUninit::uninit().assume_init() };
         let ret = unsafe {
             picoquic_prepare_packet(
                 self.as_ptr(),

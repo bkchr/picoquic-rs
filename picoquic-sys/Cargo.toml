@@ -14,7 +14,7 @@ Use the `picoquic` crate.
 edition = "2018"
 
 [dependencies]
-openssl-sys = "0.9.52"
+openssl-sys = "0.9.53"
 libc = "0.2"
 
 [build-dependencies]
