@@ -93,6 +93,8 @@ fn main() {
 
     picoquic.compile("picoquic");
 
+    let extra_cflags = env::var("PICOQUIC_BINDGEN_CFLAGS").unwrap_or("".into());
+
     // generate the rust bindings for the picoquic
     let bindings = bindgen::Builder::default()
         .clang_arg("-DNULL=0")
@@ -103,6 +105,7 @@ fn main() {
         .blacklist_type("__kernel_sockaddr_storage")
         .raw_line("pub type sockaddr_storage = ::libc::sockaddr_storage;")
         .raw_line("pub type __kernel_sockaddr_storage = sockaddr_storage;")
+        .clang_args(extra_cflags.split(" "))
         .generate()
         .expect("Generates picoquic bindings");
 
